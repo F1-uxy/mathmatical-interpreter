@@ -1,0 +1,19 @@
+﻿<Window x:Class="MathGUI.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:MathGUI"
+        mc:Ignorable="d"
+        Title="Help" Height="225" Width="400">
+    <Grid>
+        <ScrollViewer>
+            <StackPanel Margin="10">
+                <TextBlock Text="Help - Expression Syntax" FontWeight="Bold" FontSize="16" />
+                <TextBlock Text="Digits: 0–9" Margin="0,5,0,0" />
+                <TextBlock Text="Operators: +, -, *, /, %, ^" />
+                <TextBlock Text="Use parentheses to group terms: (x+3)*(y-2)" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
