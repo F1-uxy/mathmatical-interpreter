@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -12,6 +13,7 @@ using OxyPlot;
 using OxyPlot.Series;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using MathGUI.MVVM;
 
 namespace MathGUI
 {
@@ -23,12 +25,13 @@ namespace MathGUI
     {
         // Status TextBlock
         private string statusMessage = string.Empty;
+        public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
 
         public MainViewModel()
         {
             this.MyModel = new PlotModel { Title = "Example 1" };
             this.MyModel.Series.Add(new FunctionSeries(Math.Cos, 0, 10, 0.1, "cos(x)"));
-
+            
             StatusMessage = "Welcome";
 
         }
@@ -52,6 +55,11 @@ namespace MathGUI
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        private void Exit()
+        {
+            Application.Current.Shutdown();
         }
     }
 

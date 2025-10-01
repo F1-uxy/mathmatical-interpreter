@@ -13,7 +13,7 @@
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
-                <MenuItem Header="Exit"/>
+                <MenuItem Header="Exit" x:Name="MenuExit" Command="{Binding ExitCommand}"/>
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="View Help"/>
