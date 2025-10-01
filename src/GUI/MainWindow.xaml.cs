@@ -13,9 +13,9 @@ using OxyPlot;
 using OxyPlot.Series;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using MathGUI.MVVM;
+using GUI.MVVM;
 
-namespace MathGUI
+namespace GUI
 {
     /// <summary>
     /// Interaction logic for MainWindow.xaml

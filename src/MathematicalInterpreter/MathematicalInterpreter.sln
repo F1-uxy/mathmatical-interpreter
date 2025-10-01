@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GUI", "..\GUI\GUI.csproj", "{FD875629-B524-4BEA-B078-5887C8EB2422}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Interpreter", "..\Interpreter\Interpreter.fsproj", "{F773F6EB-A742-43B7-A273-87AA63AAC240}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FD875629-B524-4BEA-B078-5887C8EB2422}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FD875629-B524-4BEA-B078-5887C8EB2422}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FD875629-B524-4BEA-B078-5887C8EB2422}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FD875629-B524-4BEA-B078-5887C8EB2422}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F773F6EB-A742-43B7-A273-87AA63AAC240}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F773F6EB-A742-43B7-A273-87AA63AAC240}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F773F6EB-A742-43B7-A273-87AA63AAC240}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F773F6EB-A742-43B7-A273-87AA63AAC240}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

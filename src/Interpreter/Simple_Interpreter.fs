@@ -45,7 +45,7 @@ let getInputString() : string =
 // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
 // <T>        ::= <NR> <Topt>
 // <Topt>     ::= "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
-// <NR>       ::= "Num" <value> | "(" <E> ")"
+// <NR>       ::= "-" <NR> | "Num" <value> | "(" <E> ")"
 
 let parser tList = 
     let rec E tList = (T >> Eopt) tList         // >> is forward function composition operator: let inline (>>) f g x = g(f x)
@@ -62,10 +62,15 @@ let parser tList =
         | _ -> tList
     and NR tList =
         match tList with 
+        | Sub :: tail ->
+            let (tLst, tval) = NR tail
+            (tLst, -tval)
         | Num value :: tail -> tail
-        | Lpar :: tail -> match E tail with 
-                          | Rpar :: tail -> tail
-                          | _ -> raise parseError
+        | Lpar :: tail ->
+            let (tLst, tval) = E tail
+            match tLst with 
+              | Rpar :: tail -> tail
+              | _ -> raise parseError
         | _ -> raise parseError
     E tList
 

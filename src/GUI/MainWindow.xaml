@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:MathGUI"
-        xmlns:oxy="http://oxyplot.org/wpf" x:Class="MathGUI.MainWindow"
+        xmlns:local="clr-namespace:GUI"
+        xmlns:oxy="http://oxyplot.org/wpf" x:Class="GUI.MainWindow"
         mc:Ignorable="d"
         Title="Math Interpreter" Height="450" Width="800">
     <Window.DataContext>

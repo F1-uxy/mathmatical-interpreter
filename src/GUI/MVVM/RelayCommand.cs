@@ -1,7 +1,7 @@
 using System;
 using System.Windows.Input;
 
-namespace MathGUI.MVVM
+namespace GUI.MVVM
 {
     public class RelayCommand : ICommand
     {
