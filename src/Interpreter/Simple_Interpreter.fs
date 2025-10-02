@@ -3,6 +3,8 @@
 // Date: 23/10/2022
 // Reference: Peter Sestoft, Grammars and parsing with F#, Tech. Report
 
+module interpreter
+
 open System
 
 type terminal = 
@@ -61,16 +63,12 @@ let parser tList =
         | Div :: tail -> (NR >> Topt) tail
         | _ -> tList
     and NR tList =
-        match tList with 
-        | Sub :: tail ->
-            let (tLst, tval) = NR tail
-            (tLst, -tval)
+        match tList with
+        | Sub :: tail -> NR tail
         | Num value :: tail -> tail
-        | Lpar :: tail ->
-            let (tLst, tval) = E tail
-            match tLst with 
-              | Rpar :: tail -> tail
-              | _ -> raise parseError
+        | Lpar :: tail -> match E tail with 
+                          | Rpar :: tail -> tail
+                          | _ -> raise parseError
         | _ -> raise parseError
     E tList
 
@@ -93,11 +91,15 @@ let parseNeval tList =
         | _ -> (tList, value)
     and NR tList =
         match tList with 
+        | Sub :: tail ->
+            let (tLst, tval) = NR tail
+            (tLst, -tval)
         | Num value :: tail -> (tail, value)
-        | Lpar :: tail -> let (tLst, tval) = E tail
-                          match tLst with 
-                          | Rpar :: tail -> (tail, tval)
-                          | _ -> raise parseError
+        | Lpar :: tail -> 
+            let (tLst, tval) = E tail
+            match tLst with 
+            | Rpar :: tail -> (tail, tval)
+            | _ -> raise parseError
         | _ -> raise parseError
     E tList
 
