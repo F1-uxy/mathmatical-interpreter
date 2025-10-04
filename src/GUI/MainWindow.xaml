@@ -16,7 +16,7 @@
                 <MenuItem Header="Exit" x:Name="MenuExit" Command="{Binding ExitCommand}"/>
             </MenuItem>
             <MenuItem Header="_Help">
-                <MenuItem Header="View Help"/>
+                <MenuItem Header="View Help" Command="{Binding HelpWindowShow}"/>
                 <MenuItem Header="About"/>
             </MenuItem>
         </Menu>

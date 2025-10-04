@@ -23,15 +23,20 @@ namespace GUI
 
     public class MainViewModel : INotifyPropertyChanged
     {
+        private readonly WindowService _windowService =  new WindowService();
         // Status TextBlock
-        private string statusMessage = string.Empty;
+        private string _statusMessage = string.Empty;
         public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
+        
+        public RelayCommand HelpWindowShow => new RelayCommand(_ => ShowHelpWindow());
 
         public MainViewModel()
         {
             this.MyModel = new PlotModel { Title = "Example 1" };
             this.MyModel.Series.Add(new FunctionSeries(Math.Cos, 0, 10, 0.1, "cos(x)"));
             
+            
+
             StatusMessage = "Welcome";
 
         }
@@ -40,12 +45,12 @@ namespace GUI
 
         public string StatusMessage
         {
-            get => statusMessage;
+            get => _statusMessage;
             set
             {
-                if(statusMessage != value)
+                if(_statusMessage != value)
                 {
-                    statusMessage = value;
+                    _statusMessage = value;
                     OnPropertyChanged();
                 }
             }
@@ -60,6 +65,12 @@ namespace GUI
         private void Exit()
         {
             Application.Current.Shutdown();
+        }
+
+        private void ShowHelpWindow()
+        {
+            var HelpVM = new HelpViewModel();
+            _windowService.ShowWindow(HelpVM);
         }
     }
 
