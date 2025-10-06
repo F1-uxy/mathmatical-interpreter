@@ -8,7 +8,8 @@ public class ViewLocator
 {
     private readonly Dictionary<Type, Type> _maps = new()
     {
-        {typeof(HelpViewModel), typeof(HelpWindow)}
+        {typeof(HelpViewModel), typeof(HelpWindow)},
+        {typeof(AboutViewModel), typeof(AboutWindow)},
     };
     
     public Type GetViewType(Type viewModelType) =>

@@ -29,16 +29,18 @@ namespace GUI
         public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
         
         public RelayCommand HelpWindowShow => new RelayCommand(_ => ShowHelpWindow());
+        public RelayCommand AboutWindowShow => new RelayCommand(_ => ShowAboutWindow());
 
         public MainViewModel()
         {
+            //Func<double, double> myFun1 = (x) => 2 * x;
+            Func<double, double> sinFunc = (x) => Math.Sin(x);
             this.MyModel = new PlotModel { Title = "Example 1" };
-            this.MyModel.Series.Add(new FunctionSeries(Math.Cos, 0, 10, 0.1, "cos(x)"));
-            
-            
+            //this.MyModel.Series.Add(new FunctionSeries(Math.Cos, 0, 10, 0.1, "cos(x)"));
+            this.MyModel.Series.Add(new FunctionSeries(sinFunc, 0, 10, 0.1, "sin(x)"));
 
+            
             StatusMessage = "Welcome";
-
         }
 
         public PlotModel MyModel { get; private set; }
@@ -69,8 +71,14 @@ namespace GUI
 
         private void ShowHelpWindow()
         {
-            var HelpVM = new HelpViewModel();
-            _windowService.ShowWindow(HelpVM);
+            var helpViewModel = new HelpViewModel();
+            _windowService.ShowWindow(helpViewModel);
+        }
+        
+        private void ShowAboutWindow()
+        {
+            var aboutViewModel = new AboutViewModel();
+            _windowService.ShowWindow(aboutViewModel);
         }
     }
 

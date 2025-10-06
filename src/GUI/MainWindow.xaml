@@ -17,7 +17,7 @@
             </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="View Help" Command="{Binding HelpWindowShow}"/>
-                <MenuItem Header="About"/>
+                <MenuItem Header="About" Command="{Binding AboutWindowShow}"/>
             </MenuItem>
         </Menu>
         <Grid Margin="10">
