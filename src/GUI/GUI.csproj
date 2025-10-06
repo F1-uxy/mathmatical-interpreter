@@ -21,4 +21,8 @@
     </Page>
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Interpreter\Interpreter.fsproj" />
+  </ItemGroup>
+
 </Project>

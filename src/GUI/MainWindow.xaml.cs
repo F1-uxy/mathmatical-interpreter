@@ -13,6 +13,9 @@ using OxyPlot;
 using OxyPlot.Series;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using Microsoft.FSharp.Core;
+using Microsoft.FSharp.Collections;
+using MathInterpreter;
 using GUI.MVVM;
 
 namespace GUI
@@ -26,11 +29,14 @@ namespace GUI
         private readonly WindowService _windowService =  new WindowService();
         // Status TextBlock
         private string _statusMessage = string.Empty;
+        private string _inputExpression = string.Empty;
+        
         public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
         
         public RelayCommand HelpWindowShow => new RelayCommand(_ => ShowHelpWindow());
         public RelayCommand AboutWindowShow => new RelayCommand(_ => ShowAboutWindow());
 
+        public RelayCommand InputEnter => new RelayCommand(_ => SubmitExpression());
         public MainViewModel()
         {
             //Func<double, double> myFun1 = (x) => 2 * x;
@@ -39,8 +45,11 @@ namespace GUI
             //this.MyModel.Series.Add(new FunctionSeries(Math.Cos, 0, 10, 0.1, "cos(x)"));
             this.MyModel.Series.Add(new FunctionSeries(sinFunc, 0, 10, 0.1, "sin(x)"));
 
+            int result = MathInterpreter.interpreter.evaluate("--3+5+3");
+            System.Console.WriteLine(result);
             
             StatusMessage = "Welcome";
+            
         }
 
         public PlotModel MyModel { get; private set; }
@@ -53,6 +62,19 @@ namespace GUI
                 if(_statusMessage != value)
                 {
                     _statusMessage = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+        
+        public string InputExpression
+        {
+            get => _inputExpression;
+            set
+            {
+                if(_inputExpression != value)
+                {
+                    _inputExpression = value;
                     OnPropertyChanged();
                 }
             }
@@ -79,6 +101,12 @@ namespace GUI
         {
             var aboutViewModel = new AboutViewModel();
             _windowService.ShowWindow(aboutViewModel);
+        }
+
+        private void SubmitExpression()
+        {
+            int result = MathInterpreter.interpreter.evaluate(_inputExpression.ToString());
+            StatusMessage = result.ToString();
         }
     }
 
