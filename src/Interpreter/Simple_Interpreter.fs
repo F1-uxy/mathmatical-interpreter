@@ -40,9 +40,9 @@ module interpreter =
             | _ -> raise lexError
         scan (str2lst input)
 
-        let getInputString() : string = 
-            Console.Write("Enter an expression: ")
-            Console.ReadLine()
+    let getInputString() : string = 
+        Console.Write("Enter an expression: ")
+        Console.ReadLine()
 
     // Grammar in BNF:
     // <E>        ::= <T> <Eopt>
