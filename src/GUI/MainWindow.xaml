@@ -29,7 +29,11 @@
 
             <oxy:PlotView Model="{Binding MyModel}"/>
             <TextBlock x:Name="AlertTextBlock" Grid.Row="1" TextAlignment="Center" Text="{Binding StatusMessage}"></TextBlock>
-            <TextBox Grid.Row="2" MaxLength="48" />
+            <TextBox Grid.Row="2" MaxLength="48" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}">
+                <TextBox.InputBindings>
+                    <KeyBinding Command="{Binding InputEnter}" Key="Enter"></KeyBinding>
+                </TextBox.InputBindings>
+            </TextBox>
         </Grid>
     </DockPanel>
 </Window>
