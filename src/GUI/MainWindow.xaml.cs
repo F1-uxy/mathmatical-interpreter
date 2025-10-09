@@ -105,8 +105,22 @@ namespace GUI
 
         private void SubmitExpression()
         {
-            int result = MathInterpreter.interpreter.evaluate(_inputExpression.ToString());
-            StatusMessage = result.ToString();
+            string expression = _inputExpression.ToString();
+            if (expression == string.Empty) return;
+            try
+            {
+                int result = MathInterpreter.interpreter.evaluate(expression);
+                StatusMessage = result.ToString();
+            }
+            catch (MathInterpreter.Exceptions.LexerException e)
+            {
+                StatusMessage = e.Message;
+            }
+            catch (MathInterpreter.Exceptions.ParseException e)
+            {
+                StatusMessage = e.Message;
+            }
+            
         }
     }
 

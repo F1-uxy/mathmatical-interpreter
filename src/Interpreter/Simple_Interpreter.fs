@@ -8,15 +8,15 @@ namespace MathInterpreter
 module interpreter = 
 
     open System
+    open MathInterpreter.Exceptions
     type terminal = 
         Add | Sub | Mul | Div | Mod | Lpar | Rpar | Num of int
 
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
     let isdigit c = System.Char.IsDigit c
-    let lexError = System.Exception("Lexer error")
+    
     let intVal (c:char) = (int)((int)c - (int)'0')
-    let parseError = System.Exception("Parser error")
 
     let rec scInt(iStr, iVal) = 
         match iStr with
@@ -37,7 +37,7 @@ module interpreter =
             | c :: tail when isblank c -> scan tail
             | c :: tail when isdigit c -> let (iStr, iVal) = scInt(tail, intVal c) 
                                           Num iVal :: scan iStr
-            | _ -> raise lexError
+            | _ -> raise (LexerException("Invalid character"))
         scan (str2lst input)
 
     let getInputString() : string = 
@@ -72,8 +72,8 @@ module interpreter =
             | Num value :: tail -> tail
             | Lpar :: tail -> match E tail with 
                               | Rpar :: tail -> tail
-                              | _ -> raise parseError
-            | _ -> raise parseError
+                              | _ -> raise (ParseException("Missing closing parenthesis"))
+            | _ -> raise (ParseException("Invalid NR token"))
         E tList
 
     let parseNeval tList = 
@@ -106,8 +106,8 @@ module interpreter =
                 let (tLst, tval) = E tail
                 match tLst with 
                 | Rpar :: tail -> (tail, tval)
-                | _ -> raise parseError
-            | _ -> raise parseError
+                | _ -> raise (ParseException("Missing closing parenthesis"))
+            | _ -> raise (ParseException("Invalid NR token"))
         E tList
 
     let rec printTList (lst:list<terminal>) : list<string> = 
@@ -122,7 +122,7 @@ module interpreter =
         let tokens = lexer expr
         let (_, result) = parseNeval tokens
         result
-(*
+
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
@@ -133,4 +133,3 @@ module interpreter =
         let Out = parseNeval oList
         Console.WriteLine("Result = {0}", snd Out)
         0
-*)
