@@ -10,7 +10,7 @@ module interpreter =
     open System
     open MathInterpreter.Exceptions
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Lpar | Rpar | Num of int
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Num of int
 
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
@@ -32,6 +32,7 @@ module interpreter =
             | '*'::tail -> Mul :: scan tail
             | '%'::tail -> Mod :: scan tail
             | '/'::tail -> Div :: scan tail
+            | '^'::tail -> Pow :: scan tail
             | '('::tail -> Lpar:: scan tail
             | ')'::tail -> Rpar:: scan tail
             | c :: tail when isblank c -> scan tail
@@ -49,6 +50,8 @@ module interpreter =
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <NR> <Topt>
     // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
+    // <P>        ::= <NR> <Popt>
+    // <Popt>     ::= "^" <P> | <empty> 
     // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")"
 
     let parser tList = 
@@ -61,9 +64,14 @@ module interpreter =
         and T tList = (NR >> Topt) tList
         and Topt tList =
             match tList with
-            | Mul :: tail -> (NR >> Topt) tail
-            | Div :: tail -> (NR >> Topt) tail
-            | Mod :: tail -> (NR >> Topt) tail
+            | Mul :: tail -> (P >> Topt) tail
+            | Div :: tail -> (P >> Topt) tail
+            | Mod :: tail -> (P >> Topt) tail
+            | _ -> tList
+        and P tList = (NR >> Popt) tList
+        and Popt tList =
+            match tList with
+            | Pow :: tail -> P tail
             | _ -> tList
         and NR tList =
             match tList with
@@ -76,7 +84,9 @@ module interpreter =
             | _ -> raise (ParseException("Invalid NR token"))
         E tList
 
-    let parseNeval tList = 
+    let parseNeval tList =
+        let pown baseVal exp = int (System.Math.Pow(float baseVal, float exp))
+        
         let rec E tList = (T >> Eopt) tList
         and Eopt (tList, value) = 
             match tList with
@@ -85,16 +95,23 @@ module interpreter =
             | Sub :: tail -> let (tLst, tval) = T tail
                              Eopt (tLst, value - tval)
             | _ -> (tList, value)
-        and T tList = (NR >> Topt) tList
+        and T tList = (P >> Topt) tList
         and Topt (tList, value) =
             match tList with
-            | Mul :: tail -> let (tLst, tval) = NR tail
-                             Topt (tLst, value * tval)
-            | Div :: tail -> let (tLst, tval) = NR tail
-                             Topt (tLst, value / tval)
-            | Mod :: tail -> let (tLst, tval) = NR tail
-                             Topt (tLst, value % tval)
+            | Mul :: tail -> let (tLst, pval) = P tail
+                             Topt (tLst, value * pval)
+            | Div :: tail -> let (tLst, pval) = P tail
+                             Topt (tLst, value / pval)
+            | Mod :: tail -> let (tLst, pval) = P tail
+                             Topt (tLst, value % pval)
             | _ -> (tList, value)
+        and P tList = (NR >> Popt) tList
+        and Popt (tList, base_val) =
+            match tList with
+            | Pow :: tail ->
+                let (tLst,exp_val) = P tail
+                (tLst, pown base_val exp_val)
+            | _ -> (tList,base_val)
         and NR tList =
             match tList with
             | Add :: tail -> NR tail
