@@ -146,7 +146,10 @@ module interpreter =
         let input:string = getInputString()
         let oList = lexer input
         let sList = printTList oList;
-        let pList = printTList (parser oList)
+        let rList = parser oList
+        let pList = printTList (rList)
+        if not rList.IsEmpty then raise (ParseException("Trailing character in parser output"))
         let Out = parseNeval oList
         Console.WriteLine("Result = {0}", snd Out)
         0
+
