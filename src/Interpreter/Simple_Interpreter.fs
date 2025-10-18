@@ -101,6 +101,7 @@ module interpreter =
             | Mul :: tail -> let (tLst, pval) = P tail
                              Topt (tLst, value * pval)
             | Div :: tail -> let (tLst, pval) = P tail
+                             if pval = 0 then raise(DivisionByZeroException("Division by zero"))
                              Topt (tLst, value / pval)
             | Mod :: tail -> let (tLst, pval) = P tail
                              Topt (tLst, value % pval)

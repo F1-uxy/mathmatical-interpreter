@@ -9,6 +9,7 @@
   <ItemGroup>
 	<Compile Include="LexerException.fs" />
 	<Compile Include="ParseException.fs" />
+	<Compile Include="DivisionByZeroException.fs" />
     <Compile Include="Simple_Interpreter.fs" />
   </ItemGroup>
 
