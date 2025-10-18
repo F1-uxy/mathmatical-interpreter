@@ -27,8 +27,8 @@
                 <RowDefinition Height="1*"/>
             </Grid.RowDefinitions>
 
-            <oxy:PlotView Model="{Binding MyModel}"/>
-            <TextBlock x:Name="AlertTextBlock" Grid.Row="1" TextAlignment="Center" Text="{Binding StatusMessage}"></TextBlock>
+            <oxy:PlotView Model="{Binding MyModel }" />
+            <TextBlock x:Name="AlertTextBlock" Grid.Row="1" TextAlignment="Center" Text="{Binding StatusMessage}" FontSize="32"></TextBlock>
             <TextBox Grid.Row="2" MaxLength="48" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}">
                 <TextBox.InputBindings>
                     <KeyBinding Command="{Binding InputEnter}" Key="Enter"></KeyBinding>

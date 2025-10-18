@@ -1,0 +1,2 @@
+module MathInterpreter.DivisionByZeroException
+
