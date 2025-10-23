@@ -10,11 +10,13 @@ module interpreter =
     open System
     open MathInterpreter.Exceptions
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Num of int
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Num of int | Id of string
 
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
     let isdigit c = System.Char.IsDigit c
+    let islord c = Char.IsLetterOrDigit c
+    let isid c = islord c || c = '_'
     
     let intVal (c:char) = (int)((int)c - (int)'0')
 
@@ -22,6 +24,38 @@ module interpreter =
         match iStr with
         c :: tail when isdigit c -> scInt(tail, 10*iVal+(intVal c))
         | _ -> (iStr, iVal)
+    
+    let rec scId(input, acc) =
+        match input with
+        | c :: tail when isid c -> scId (tail, acc + string c)
+        | _ -> (input, acc)
+        
+    let knownFunctions : Map<string, int list -> int> =
+        Map.ofList [
+            "sin", (fun args -> 
+                match args with
+                | [x] -> int (Math.Round(Math.Sin(float x)))
+                | _ -> raise (FunctionArgsException("sin takes 1 argument")))
+            "cos", (fun args -> 
+                match args with
+                | [x] -> int (Math.Round(Math.Cos(float x)))
+                | _ -> raise (FunctionArgsException("cos takes 1 argument")))
+            "tan", (fun args -> 
+                match args with
+                | [x] -> int (Math.Round(Math.Tan(float x)))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "abs", (fun args ->
+                match args with
+                | [x] -> abs x
+                | _ -> raise (FunctionArgsException("abs takes 1 argument")))
+            "sqrt", (fun args ->
+                match args with
+                | [x] -> int (Math.Round(Math.Sqrt(float x)))
+                | _ -> raise (FunctionArgsException("sqrt takes 1 argument")))
+            "plot", (fun args ->
+                Console.WriteLine("This is a plot funciton")
+                0)
+        ]
 
     let lexer input = 
         let rec scan input =
@@ -35,9 +69,12 @@ module interpreter =
             | '^'::tail -> Pow :: scan tail
             | '('::tail -> Lpar:: scan tail
             | ')'::tail -> Rpar:: scan tail
+            | ','::tail -> Comma:: scan tail
             | c :: tail when isblank c -> scan tail
             | c :: tail when isdigit c -> let (iStr, iVal) = scInt(tail, intVal c) 
                                           Num iVal :: scan iStr
+            | c :: tail when islord c -> let (rest, name) = scId(tail, string c)
+                                         Id name :: scan rest
             | _ -> raise (LexerException("Invalid character"))
         scan (str2lst input)
 
@@ -50,43 +87,20 @@ module interpreter =
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <NR> <Topt>
     // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
-    // <P>        ::= <NR> <Popt>
-    // <Popt>     ::= "^" <P> | <empty> 
+    // <P>        ::= <F> <Popt>
+    // <Popt>     ::= "^" <P> | <empty>
+    // <F>        ::= <NR> | <FCall> 
     // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")"
-
-    let parser tList = 
-        let rec E tList = (T >> Eopt) tList         // >> is forward function composition operator: let inline (>>) f g x = g(f x)
-        and Eopt tList = 
-            match tList with
-            | Add :: tail -> (T >> Eopt) tail
-            | Sub :: tail -> (T >> Eopt) tail
-            | _ -> tList
-        and T tList = (NR >> Topt) tList
-        and Topt tList =
-            match tList with
-            | Mul :: tail -> (P >> Topt) tail
-            | Div :: tail -> (P >> Topt) tail
-            | Mod :: tail -> (P >> Topt) tail
-            | _ -> tList
-        and P tList = (NR >> Popt) tList
-        and Popt tList =
-            match tList with
-            | Pow :: tail -> P tail
-            | _ -> tList
-        and NR tList =
-            match tList with
-            | Add :: tail -> NR tail
-            | Sub :: tail -> NR tail
-            | Num value :: tail -> tail
-            | Lpar :: tail -> match E tail with 
-                              | Rpar :: tail -> tail
-                              | _ -> raise (ParseException("Missing closing parenthesis"))
-            | _ -> raise (ParseException("Invalid NR token"))
-        E tList
+    // <FCall>    ::= "id" "(" <Args> ")"
+    // <Args>     ::= <E> <ArgList> | <empty>
+    // <ArgList> ::= "," <E> <ArgList> | <empty>
 
     let parseNeval tList =
         let pown baseVal exp = int (System.Math.Pow(float baseVal, float exp))
-        
+        let evalFunc name args =
+            match knownFunctions.TryFind(name) with
+            | Some f -> f args
+            | None -> raise (ParseException($"Unknown function: { name }" ))
         let rec E tList = (T >> Eopt) tList
         and Eopt (tList, value) = 
             match tList with
@@ -125,8 +139,29 @@ module interpreter =
                 match tLst with 
                 | Rpar :: tail -> (tail, tval)
                 | _ -> raise (ParseException("Missing closing parenthesis"))
-            | _ -> raise (ParseException("Invalid NR token"))
-        E tList
+            | Id name :: Lpar :: tail ->
+                let (tLst, args) = parseArgs tail []
+                match tLst with
+                | Rpar :: rest ->
+                    let value = evalFunc name args
+                    (rest, value)
+                | _ -> raise (ParseException("Missing closing parenthesis"))
+            | _ -> raise (ParseException("Unknown NR token"))
+        and parseArgs tList acc =
+            match tList with
+            | Rpar :: _ -> (tList, List.rev acc)  // return the list starting at Rpar
+            | _ ->
+                let (tLst, tval) = E tList
+                parseArgList tLst (tval :: acc)
+        and parseArgList tList acc =
+            match tList with
+            | Comma :: tail ->
+                let (tLst, tval) = E tail
+                parseArgList tLst (tval :: acc)
+            | _ -> (tList, acc)
+        let (rest, result) = E tList
+        if not rest.IsEmpty then raise (ParseException("Trailing character in parser output")) 
+        (rest, result)
 
     let rec printTList (lst:list<terminal>) : list<string> = 
         match lst with
@@ -138,7 +173,7 @@ module interpreter =
 
     let evaluate(expr: string) : int =
         let tokens = lexer expr
-        let (_, result) = parseNeval tokens
+        let (rest, result) = parseNeval tokens
         result
 
     [<EntryPoint>]
@@ -146,10 +181,7 @@ module interpreter =
         Console.WriteLine("Simple Interpreter")
         let input:string = getInputString()
         let oList = lexer input
-        let sList = printTList oList;
-        let rList = parser oList
-        let pList = printTList (rList)
-        if not rList.IsEmpty then raise (ParseException("Trailing character in parser output"))
+        let pList = printTList (oList)
         let Out = parseNeval oList
         Console.WriteLine("Result = {0}", snd Out)
         0
