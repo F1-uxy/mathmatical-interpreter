@@ -29,6 +29,10 @@ namespace GUI
         // Status TextBlock
         private string _statusMessage = string.Empty;
         private string _inputExpression = string.Empty;
+        private int _xMinInput = 0;
+        private int _xMaxInput = 0;
+        private int _stepInput = 0;
+        
         
         public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
         
@@ -44,11 +48,10 @@ namespace GUI
         {
             //Func<double, double> myFun1 = (x) => 2 * x;
             Func<double, double> sinFunc = (x) => Math.Sin(x);
-            this.MyModel = new PlotModel { Title = "Example 1" };
-            //this.MyModel.Series.Add(new FunctionSeries(Math.Cos, 0, 10, 0.1, "cos(x)"));
+            this.MyModel = new PlotModel { Title = "sin(x)" };
             this.MyModel.Series.Add(new FunctionSeries(sinFunc, 0, 10, 0.1, "sin(x)"));
 
-            StatusMessage = "Welcome";
+            AppendToConsole(">> Welcome", false);
         }
         
         
@@ -63,6 +66,47 @@ namespace GUI
                 }
                 _statusMessage = value;
                 OnPropertyChanged();
+            }
+        }
+        
+        public int XMaxInput
+        {
+            get => _xMaxInput;
+            set
+            {
+                if(_xMaxInput == value)
+                {
+                    return;
+                }
+                _xMaxInput = value;
+                OnPropertyChanged();
+            }
+        }
+        
+        public int XMinInput
+        {
+            get => _xMinInput;
+            set
+            {
+                if(_xMinInput == value)
+                {
+                    return;
+                }
+                _xMinInput = value;
+                OnPropertyChanged();
+            }
+        }
+        
+        public int StepInput
+        {
+            get => _stepInput;
+            set
+            {
+                if(_stepInput != value)
+                {
+                    _stepInput = value;
+                    OnPropertyChanged();
+                }
             }
         }
         
@@ -102,14 +146,30 @@ namespace GUI
             _windowService.ShowWindow(aboutViewModel);
         }
 
+        private void AppendToConsole(string str, bool marker)
+        {
+            StatusMessage += marker ? $">> { str }\n" : $"{ str }\n";
+
+        }
+
+        private void AppendExceptionToConsole(Exception ex)
+        {
+            AppendToConsole(ex.Message, false);
+        }
+        
+        private void AppendExceptionToConsole(string ex)
+        {
+            AppendToConsole(ex, false);
+        }
+
         private void PlotExpression()
         {
             string expression = _inputExpression.ToString();
             if (expression == string.Empty) return;
-            string json = MathInterpreter.interpreter.evalPlot(expression, 0, 10, 10);
 
             try
             {
+                string json = MathInterpreter.interpreter.evalPlot(expression, XMinInput, XMaxInput, StepInput);
                 var obj = JObject.Parse(json);
                 string type = (string)obj["type"];
 
@@ -136,35 +196,35 @@ namespace GUI
 
                     model.Series.Add(series);
                     MyModel = model;
-                    OnPropertyChanged(nameof(MyModel)); // Notify UI that the model changed
+                    OnPropertyChanged(nameof(MyModel));
                 }
             }
             catch (Exception e)
             {
-                StatusMessage = $"Plot failed: {e.Message}";
+                AppendExceptionToConsole($"Plot failed: {e.Message}");
             }
-            
         }
         private void SubmitExpression()
         {
             string expression = _inputExpression.ToString();
+            AppendToConsole(expression, true);
             if (expression == string.Empty) return;
             try
             {
                 int result = MathInterpreter.interpreter.evaluate(expression);
-                StatusMessage = result.ToString();
+                AppendToConsole($"= { result.ToString() }", false);
             }
             catch (MathInterpreter.Exceptions.LexerException e)
             {
-                StatusMessage = e.Message;
+                AppendExceptionToConsole(e);
             }
             catch (MathInterpreter.Exceptions.ParseException e)
             {
-                StatusMessage = e.Message;
+                AppendExceptionToConsole(e);
             }
             catch (MathInterpreter.Exceptions.DivisionByZeroException e)
             {
-                StatusMessage = e.Message;
+                AppendExceptionToConsole(e);
             }
             
         }

@@ -225,9 +225,9 @@ module interpreter =
         | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
         
-    // If steps does not divide through the range as a whole integer than lexer will fail as floating points not implemented
-    let evalPlot (expr: string, xMin: int, xMax: int, steps: int) : string =
-        let xs = [| for i in 0 .. steps -> float xMin + (float i / float steps) * float (xMax - xMin) |]
+    // If stepsize does not divide through the range as a whole integer than lexer will fail as floating points not implemented
+    let evalPlot (expr: string, xMin: int, xMax: int, stepSize: float) : string =
+        let xs = [| for x in seq { float xMin .. stepSize .. float xMax } -> x |]
         let ys = xs |> Array.map ( fun x ->
             let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
             let substituted = expr.Replace("x", replacement)
@@ -256,8 +256,6 @@ module interpreter =
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
-        let plot = evalPlot("2*x", 0, 10, 10)
-        Console.WriteLine($"{ plot }")
         let input:string = getInputString()
         let oList = lexer input
         let pList = printTList (oList)
