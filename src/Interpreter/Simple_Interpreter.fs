@@ -89,15 +89,15 @@ module interpreter =
         Map.ofList [
             "sin", (fun args -> 
                 match args with
-                | [x] -> FloatVal (Math.Round(Math.Sin(toFloat x)))
+                | [x] -> FloatVal (Math.Sin(toFloat x))
                 | _ -> raise (FunctionArgsException("sin takes 1 argument")))
             "cos", (fun args -> 
                 match args with
-                | [x] -> FloatVal (Math.Round(Math.Cos(toFloat x)))
+                | [x] -> FloatVal (Math.Cos(toFloat x))
                 | _ -> raise (FunctionArgsException("cos takes 1 argument")))
             "tan", (fun args -> 
                 match args with
-                | [x] -> FloatVal (Math.Round(Math.Tan(toFloat x)))
+                | [x] -> FloatVal (Math.Tan(toFloat x))
                 | _ -> raise (FunctionArgsException("tan takes 1 argument")))
             "abs", (fun args ->
                 match args with
@@ -106,7 +106,7 @@ module interpreter =
                 | _ -> raise (FunctionArgsException("abs takes 1 argument")))
             "sqrt", (fun args ->
                 match args with
-                | [x] -> FloatVal (Math.Round(Math.Sqrt(toFloat x)))
+                | [x] -> FloatVal (Math.Sqrt(toFloat x))
                 | _ -> raise (FunctionArgsException("sqrt takes 1 argument")))
         ]
 
