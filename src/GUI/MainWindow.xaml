@@ -60,12 +60,18 @@
                     <ColumnDefinition Width="3*"/>
                 </Grid.ColumnDefinitions>
                 
-                <TextBlock x:Name="AlertTextBlock" Grid.Row="0" Grid.Column="0" TextAlignment="Center" Text="{Binding StatusMessage}" FontSize="32"></TextBlock>
-                
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="0" Grid.Column="0" >
+                    <TextBox x:Name="AlertTextBlock" 
+                             FontFamily="Consolas"
+                             FontSize="14"
+                             AcceptsReturn="True"
+                             IsReadOnly="True"
+                             VerticalScrollBarVisibility="Auto"
+                             TextWrapping="NoWrap"
+                             Text="{Binding StatusMessage}"/>
+                </ScrollViewer>
                 <oxy:PlotView Grid.Row="0" Grid.Column="1" Model="{Binding MyModel }" />
-                
             </Grid>
-            
         </Grid>
     </DockPanel>
 </Window>
