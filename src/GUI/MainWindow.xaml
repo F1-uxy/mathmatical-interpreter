@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:GUI"
         xmlns:oxy="http://oxyplot.org/wpf" x:Class="GUI.MainWindow"
         mc:Ignorable="d"
-        Title="Math Interpreter" Height="450" Width="800">
+        Title="Math Interpreter" Height="450" Width="800" Background="#A6CAF5">
     <Window.DataContext>
         <local:MainViewModel/>
     </Window.DataContext>
@@ -32,7 +32,7 @@
                     <ColumnDefinition Width="2*"/>
                 </Grid.ColumnDefinitions>
                 
-                <TextBox Grid.Row="0" Grid.Column="0" MaxLength="48" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}">
+                <TextBox Grid.Row="0" Grid.Column="0" MaxLength="48" Margin="5" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}">
                     <TextBox.InputBindings>
                         <KeyBinding Command="{Binding InputEnter}" Key="Enter"></KeyBinding>
                     </TextBox.InputBindings>
@@ -68,9 +68,42 @@
                              IsReadOnly="True"
                              VerticalScrollBarVisibility="Auto"
                              TextWrapping="NoWrap"
-                             Text="{Binding StatusMessage}"/>
+                             Text="{Binding StatusMessage}"
+                             Margin="5"/>
                 </ScrollViewer>
-                <oxy:PlotView Grid.Row="0" Grid.Column="1" Model="{Binding MyModel }" />
+                <Grid Grid.Column="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="1*"/>
+                        <RowDefinition Height="8*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="2*" />
+                            <ColumnDefinition Width="2*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock Text="xMin:" VerticalAlignment="Center" Margin="0,0,5,0" />
+                            <TextBox Width="60" Text="{Binding XMinInput}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock Text="xMax:" VerticalAlignment="Center" Margin="0,0,5,0" />
+                            <TextBox Width="60" Text="{Binding XMaxInput}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock Text="Step:" VerticalAlignment="Center" Margin="0,0,5,0" />
+                            <TextBox Width="60" Text="{Binding StepInput}" />
+                        </StackPanel>
+                    </Grid>
+                    
+                    <oxy:PlotView Grid.Row="1" Model="{Binding MyModel }" Margin="5"/>
+                </Grid>
+                
             </Grid>
         </Grid>
     </DockPanel>
