@@ -10,11 +10,13 @@ module interpreter =
     open System
     open MathInterpreter.Exceptions
     open Newtonsoft.Json
+    type NumericValue =
+        IntVal of int | FloatVal of float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Num of int | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Num of NumericValue | Id of string
     
     type EvalResult =
-        Number of int | Plot of X: float[] * Y: float[]
+        Number of NumericValue | Plot of X: float[] * Y: float[]
 
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
@@ -23,38 +25,88 @@ module interpreter =
     let isid c = islord c || c = '_'
     
     let intVal (c:char) = (int)((int)c - (int)'0')
+    
+    let toFloat = function
+        | IntVal i -> float i
+        | FloatVal f -> f
+    let addNums a b =
+        match (a, b) with
+        | (IntVal x, IntVal y) -> IntVal ( x + y )
+        | _ -> FloatVal (toFloat a + toFloat b)
+    let subNums a b=
+        match (a, b) with
+        | (IntVal x, IntVal y) -> IntVal (x - y)
+        | _ -> FloatVal (toFloat a - toFloat b)
+    let mulNums a b =
+        match (a, b) with
+        | (IntVal x, IntVal y) -> IntVal (x * y)
+        | _ -> FloatVal (toFloat a * toFloat b)
+    
+    let divNums a b =
+        match (a, b) with
+        | (FloatVal 0.0, _) | (IntVal 0, _) -> 
+            raise(DivisionByZeroException("Division by zero"))
+        | (IntVal x, IntVal y) when x % y = 0 -> IntVal (x / y)
+        | _ -> FloatVal (toFloat a / toFloat b)
+    
+    let modNums a b =
+        match (a, b) with
+        | (IntVal x, IntVal y) -> IntVal (x % y)
+        | _ -> FloatVal (toFloat a % toFloat b)
+    let powNums baseVal expVal =
+        match (baseVal, expVal) with
+        | (IntVal b, IntVal e) when e >= 0 -> 
+            IntVal (int (Math.Pow(float b, float e)))
+        | _ -> FloatVal (Math.Pow(toFloat baseVal, toFloat expVal))
+        
+    let negNum a =
+        match a with
+        | IntVal x -> IntVal (-x)
+        | FloatVal x -> FloatVal (-x)
 
+    let rec scFrac (input: char list) (currentValue: float) (place: float) =
+        match input with
+        | c :: tail when isdigit c ->
+            let digitValue = float (intVal c)
+            let newValue = currentValue + digitValue * place
+            scFrac tail newValue (place/10.0)
+        | _ -> (input, currentValue)
+        
     let rec scInt(iStr, iVal) = 
         match iStr with
-        c :: tail when isdigit c -> scInt(tail, 10*iVal+(intVal c))
-        | _ -> (iStr, iVal)
+        | '.' :: tail ->
+            let (rest, fracValue) = scFrac tail 0.0 0.1
+            (rest, Num (FloatVal(float iVal + fracValue )))
+        | c :: tail when isdigit c -> scInt(tail, 10*iVal+(intVal c))
+        | _ -> (iStr, Num (IntVal iVal))
     
     let rec scId(input, acc) =
         match input with
         | c :: tail when isid c -> scId (tail, acc + string c)
         | _ -> (input, acc)
         
-    let knownFunctions : Map<string, int list -> int> =
+    let knownFunctions : Map<string, NumericValue list -> NumericValue> =
         Map.ofList [
             "sin", (fun args -> 
                 match args with
-                | [x] -> int (Math.Round(Math.Sin(float x)))
+                | [x] -> FloatVal (Math.Round(Math.Sin(toFloat x)))
                 | _ -> raise (FunctionArgsException("sin takes 1 argument")))
             "cos", (fun args -> 
                 match args with
-                | [x] -> int (Math.Round(Math.Cos(float x)))
+                | [x] -> FloatVal (Math.Round(Math.Cos(toFloat x)))
                 | _ -> raise (FunctionArgsException("cos takes 1 argument")))
             "tan", (fun args -> 
                 match args with
-                | [x] -> int (Math.Round(Math.Tan(float x)))
+                | [x] -> FloatVal (Math.Round(Math.Tan(toFloat x)))
                 | _ -> raise (FunctionArgsException("tan takes 1 argument")))
             "abs", (fun args ->
                 match args with
-                | [x] -> abs x
+                | [IntVal x] -> IntVal (abs x)
+                | [FloatVal x] -> FloatVal (abs x)
                 | _ -> raise (FunctionArgsException("abs takes 1 argument")))
             "sqrt", (fun args ->
                 match args with
-                | [x] -> int (Math.Round(Math.Sqrt(float x)))
+                | [x] -> FloatVal (Math.Round(Math.Sqrt(toFloat x)))
                 | _ -> raise (FunctionArgsException("sqrt takes 1 argument")))
         ]
 
@@ -72,8 +124,12 @@ module interpreter =
             | ')'::tail -> Rpar:: scan tail
             | ','::tail -> Comma:: scan tail
             | c :: tail when isblank c -> scan tail
-            | c :: tail when isdigit c -> let (iStr, iVal) = scInt(tail, intVal c) 
-                                          Num iVal :: scan iStr
+            | c :: tail when isdigit c ->
+                let (rest, numToken) = scInt(tail, intVal c) 
+                numToken :: scan rest
+            | '.' :: tail -> 
+                let (rest, fracValue) = scFrac tail 0.0 0.1
+                Num (FloatVal fracValue) :: scan rest
             | c :: tail when islord c -> let (rest, name) = scId(tail, string c)
                                          Id name :: scan rest
             | _ -> raise (LexerException("Invalid character"))
@@ -106,34 +162,34 @@ module interpreter =
         and Eopt (tList, value) = 
             match tList with
             | Add :: tail -> let (tLst, tval) = T tail
-                             Eopt (tLst, value + tval)
+                             Eopt (tLst, addNums value  tval)
             | Sub :: tail -> let (tLst, tval) = T tail
-                             Eopt (tLst, value - tval)
+                             Eopt (tLst, subNums value  tval)
             | _ -> (tList, value)
         and T tList = (P >> Topt) tList
         and Topt (tList, value) =
             match tList with
             | Mul :: tail -> let (tLst, pval) = P tail
-                             Topt (tLst, value * pval)
+                             Topt (tLst, mulNums value  pval)
             | Div :: tail -> let (tLst, pval) = P tail
-                             if pval = 0 then raise(DivisionByZeroException("Division by zero"))
-                             Topt (tLst, value / pval)
+//                             if pval = 0 then raise(DivisionByZeroException("Division by zero"))
+                             Topt (tLst, divNums value  pval)
             | Mod :: tail -> let (tLst, pval) = P tail
-                             Topt (tLst, value % pval)
+                             Topt (tLst, modNums value  pval)
             | _ -> (tList, value)
         and P tList = (NR >> Popt) tList
         and Popt (tList, base_val) =
             match tList with
             | Pow :: tail ->
                 let (tLst,exp_val) = P tail
-                (tLst, pown base_val exp_val)
+                (tLst, powNums base_val exp_val)
             | _ -> (tList,base_val)
         and NR tList =
             match tList with
             | Add :: tail -> NR tail
             | Sub :: tail ->
                 let (tLst, tval) = NR tail
-                (tLst, -tval)
+                (tLst, negNum tval)
             | Num value :: tail -> (tail, value)
             | Lpar :: tail -> 
                 let (tLst, tval) = E tail
@@ -177,7 +233,7 @@ module interpreter =
             let substituted = expr.Replace("x", replacement)
             let lexed = lexer substituted
             let (_, result) = parseNeval lexed
-            float result
+            toFloat result
             )
         
         let res = Plot(xs, ys)
@@ -192,7 +248,7 @@ module interpreter =
         | [] -> Console.Write("EOL\n")
                 []
 
-    let evaluate(expr: string) : int =
+    let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (rest, result) = parseNeval tokens
         result
