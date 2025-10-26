@@ -225,7 +225,7 @@ module interpreter =
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
         
     // If stepsize does not divide through the range as a whole integer than lexer will fail as floating points not implemented
-    let evalPlot (expr: string, xMin: int, xMax: int, stepSize: float) : string =
+    let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
         let xs = [| for x in seq { float xMin .. stepSize .. float xMax } -> x |]
         let ys = xs |> Array.map ( fun x ->
             let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"

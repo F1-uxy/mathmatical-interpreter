@@ -29,9 +29,9 @@ namespace GUI
         // Status TextBlock
         private string _statusMessage = string.Empty;
         private string _inputExpression = string.Empty;
-        private int _xMinInput = 0;
-        private int _xMaxInput = 0;
-        private int _stepInput = 0;
+        private float _xMinInput = 0;
+        private float _xMaxInput = 0;
+        private float _stepInput = 0;
         
         
         public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
@@ -69,7 +69,7 @@ namespace GUI
             }
         }
         
-        public int XMaxInput
+        public float XMaxInput
         {
             get => _xMaxInput;
             set
@@ -83,7 +83,7 @@ namespace GUI
             }
         }
         
-        public int XMinInput
+        public float XMinInput
         {
             get => _xMinInput;
             set
@@ -97,7 +97,7 @@ namespace GUI
             }
         }
         
-        public int StepInput
+        public float StepInput
         {
             get => _stepInput;
             set
@@ -211,8 +211,18 @@ namespace GUI
             if (expression == string.Empty) return;
             try
             {
-                int result = MathInterpreter.interpreter.evaluate(expression);
-                AppendToConsole($"= { result.ToString() }", false);
+                var result = MathInterpreter.interpreter.evaluate(expression);
+
+                string resultStr;
+
+                if (result is MathInterpreter.interpreter.NumericValue.IntVal intCase)
+                    resultStr = intCase.Item.ToString();
+                else if (result is MathInterpreter.interpreter.NumericValue.FloatVal floatCase)
+                    resultStr = floatCase.Item.ToString();
+                else
+                    resultStr = "Unknown result";
+
+                AppendToConsole($"= {resultStr}", false);
             }
             catch (MathInterpreter.Exceptions.LexerException e)
             {
