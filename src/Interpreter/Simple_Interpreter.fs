@@ -153,7 +153,6 @@ module interpreter =
     // <ArgList> ::= "," <E> <ArgList> | <empty>
 
     let rec parseNeval tList =
-        let pown baseVal exp = int (System.Math.Pow(float baseVal, float exp))
         let evalFunc name args =
             match knownFunctions.TryFind(name) with
             | Some f -> f args
