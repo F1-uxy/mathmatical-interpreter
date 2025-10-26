@@ -9,8 +9,12 @@ module interpreter =
 
     open System
     open MathInterpreter.Exceptions
+    open Newtonsoft.Json
     type terminal = 
         Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Num of int | Id of string
+    
+    type EvalResult =
+        Number of int | Plot of X: float[] * Y: float[]
 
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
@@ -52,9 +56,6 @@ module interpreter =
                 match args with
                 | [x] -> int (Math.Round(Math.Sqrt(float x)))
                 | _ -> raise (FunctionArgsException("sqrt takes 1 argument")))
-            "plot", (fun args ->
-                Console.WriteLine("This is a plot funciton")
-                0)
         ]
 
     let lexer input = 
@@ -95,7 +96,7 @@ module interpreter =
     // <Args>     ::= <E> <ArgList> | <empty>
     // <ArgList> ::= "," <E> <ArgList> | <empty>
 
-    let parseNeval tList =
+    let rec parseNeval tList =
         let pown baseVal exp = int (System.Math.Pow(float baseVal, float exp))
         let evalFunc name args =
             match knownFunctions.TryFind(name) with
@@ -162,7 +163,27 @@ module interpreter =
         let (rest, result) = E tList
         if not rest.IsEmpty then raise (ParseException("Trailing character in parser output")) 
         (rest, result)
-
+    
+    let toJson(result: EvalResult) =
+        match result with
+        | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
+        | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
+        
+    // If steps does not divide through the range as a whole integer than lexer will fail as floating points not implemented
+    let evalPlot (expr: string, xMin: int, xMax: int, steps: int) : string =
+        let xs = [| for i in 0 .. steps -> float xMin + (float i / float steps) * float (xMax - xMin) |]
+        let ys = xs |> Array.map ( fun x ->
+            let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
+            let substituted = expr.Replace("x", replacement)
+            let lexed = lexer substituted
+            let (_, result) = parseNeval lexed
+            float result
+            )
+        
+        let res = Plot(xs, ys)
+        let ret = toJson(res)
+        ret
+    
     let rec printTList (lst:list<terminal>) : list<string> = 
         match lst with
         head::tail -> Console.Write("{0} ",head.ToString())
@@ -179,6 +200,8 @@ module interpreter =
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
+        let plot = evalPlot("2*x", 0, 10, 10)
+        Console.WriteLine($"{ plot }")
         let input:string = getInputString()
         let oList = lexer input
         let pList = printTList (oList)

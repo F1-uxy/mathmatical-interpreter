@@ -22,18 +22,50 @@
         </Menu>
         <Grid Margin="10">
             <Grid.RowDefinitions>
-                <RowDefinition Height="8*"/>
-                <RowDefinition Height="3*"/>
                 <RowDefinition Height="1*"/>
+                <RowDefinition Height="8*"/>
             </Grid.RowDefinitions>
-
-            <oxy:PlotView Model="{Binding MyModel }" />
-            <TextBlock x:Name="AlertTextBlock" Grid.Row="1" TextAlignment="Center" Text="{Binding StatusMessage}" FontSize="32"></TextBlock>
-            <TextBox Grid.Row="2" MaxLength="48" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}">
-                <TextBox.InputBindings>
-                    <KeyBinding Command="{Binding InputEnter}" Key="Enter"></KeyBinding>
-                </TextBox.InputBindings>
-            </TextBox>
+            
+            <Grid Margin="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="8*"/>
+                    <ColumnDefinition Width="2*"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBox Grid.Row="0" Grid.Column="0" MaxLength="48" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}">
+                    <TextBox.InputBindings>
+                        <KeyBinding Command="{Binding InputEnter}" Key="Enter"></KeyBinding>
+                    </TextBox.InputBindings>
+                </TextBox>
+                
+                <Grid Grid.Column="1" Margin="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition  Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <Button Margin="10" Grid.Column="0" Command="{Binding InputEnter}">
+                        <TextBlock>Enter</TextBlock>
+                    </Button>
+                    <Button Margin="10" Grid.Column="1" Command="{Binding PlotEnter}">
+                        <TextBlock>Plot</TextBlock>
+                    </Button>
+                </Grid>
+            </Grid>
+            
+            
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="3*"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBlock x:Name="AlertTextBlock" Grid.Row="0" Grid.Column="0" TextAlignment="Center" Text="{Binding StatusMessage}" FontSize="32"></TextBlock>
+                
+                <oxy:PlotView Grid.Row="0" Grid.Column="1" Model="{Binding MyModel }" />
+                
+            </Grid>
+            
         </Grid>
     </DockPanel>
 </Window>

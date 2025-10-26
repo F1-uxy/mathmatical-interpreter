@@ -15,6 +15,8 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.FSharp.Core;
 using Microsoft.FSharp.Collections;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using MathInterpreter;
 using GUI.MVVM;
 
@@ -35,6 +37,7 @@ namespace GUI
 
         public RelayCommand InputEnter => new RelayCommand(_ => SubmitExpression());
 
+        public RelayCommand PlotEnter => new RelayCommand(_ => PlotExpression());
 
         public PlotModel MyModel { get; private set; }
         public MainViewModel()
@@ -54,11 +57,12 @@ namespace GUI
             get => _statusMessage;
             set
             {
-                if(_statusMessage != value)
+                if(_statusMessage == value)
                 {
-                    _statusMessage = value;
-                    OnPropertyChanged();
+                    return;
                 }
+                _statusMessage = value;
+                OnPropertyChanged();
             }
         }
         
@@ -98,6 +102,49 @@ namespace GUI
             _windowService.ShowWindow(aboutViewModel);
         }
 
+        private void PlotExpression()
+        {
+            string expression = _inputExpression.ToString();
+            if (expression == string.Empty) return;
+            string json = MathInterpreter.interpreter.evalPlot(expression, 0, 10, 10);
+
+            try
+            {
+                var obj = JObject.Parse(json);
+                string type = (string)obj["type"];
+
+                if (type == "plot")
+                {
+                    // Extract arrays
+                    double[] x = obj["x"].ToObject<double[]>();
+                    double[] y = obj["y"].ToObject<double[]>();
+
+                    // Create new plot model
+                    var model = new PlotModel { Title = $"{expression}" };
+                    var series = new LineSeries
+                    {
+                        Title = expression,
+                        MarkerType = MarkerType.Circle,
+                        MarkerSize = 3,
+                        MarkerStroke = OxyColors.Black
+                    };
+
+                    for (int i = 0; i < x.Length; i++)
+                    {
+                        series.Points.Add(new DataPoint(x[i], y[i]));
+                    }
+
+                    model.Series.Add(series);
+                    MyModel = model;
+                    OnPropertyChanged(nameof(MyModel)); // Notify UI that the model changed
+                }
+            }
+            catch (Exception e)
+            {
+                StatusMessage = $"Plot failed: {e.Message}";
+            }
+            
+        }
         private void SubmitExpression()
         {
             string expression = _inputExpression.ToString();
