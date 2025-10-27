@@ -13,11 +13,13 @@ module interpreter =
     type NumericValue =
         IntVal of int | FloatVal of float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | Num of NumericValue | Id of string
     
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
 
+    let mutable symbTable : Map<string, NumericValue> = Map.empty
+    
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
     let isdigit c = System.Char.IsDigit c
@@ -98,11 +100,7 @@ module interpreter =
         match input with
         | c :: tail when isid c -> scId (tail, acc + string c)
         | _ -> (input, acc)
-
-
-    
-
-
+        
     let knownFunctions : Map<string, NumericValue list -> NumericValue> =
         Map.ofList [
             "sin", (fun args -> 
@@ -141,6 +139,7 @@ module interpreter =
             | '('::tail -> Lpar:: scan tail
             | ')'::tail -> Rpar:: scan tail
             | ','::tail -> Comma:: scan tail
+            | '='::tail -> Eq :: scan tail
             | c :: tail when isblank c -> scan tail
             | c :: tail when isdigit c ->
                 let (rest, numToken) = scInt(tail, intVal c) 
@@ -158,6 +157,7 @@ module interpreter =
         Console.ReadLine()
 
     // Grammar in BNF:
+    // <S>        ::= Id "=" <E> | <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <NR> <Topt>
@@ -166,7 +166,7 @@ module interpreter =
     // <Popt>     ::= "^" <P> | <empty>
     // <F>        ::= <NR> | <FCall> 
     // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")"
-    // <FCall>    ::= "id" "(" <Args> ")"
+    // <FCall>    ::= Id "(" <Args> ")"
     // <Args>     ::= <E> <ArgList> | <empty>
     // <ArgList> ::= "," <E> <ArgList> | <empty>
 
@@ -175,6 +175,7 @@ module interpreter =
             match knownFunctions.TryFind(name) with
             | Some f -> f args
             | None -> raise (ParseException($"Unknown function: { name }" ))
+
         let rec E tList = (T >> Eopt) tList
         and Eopt (tList, value) = 
             match tList with
@@ -189,7 +190,6 @@ module interpreter =
             | Mul :: tail -> let (tLst, pval) = P tail
                              Topt (tLst, mulNums value  pval)
             | Div :: tail -> let (tLst, pval) = P tail
-//                             if pval = 0 then raise(DivisionByZeroException("Division by zero"))
                              Topt (tLst, divNums value  pval)
             | Mod :: tail -> let (tLst, pval) = P tail
                              Topt (tLst, modNums value  pval)
@@ -220,10 +220,14 @@ module interpreter =
                     let value = evalFunc name args
                     (rest, value)
                 | _ -> raise (ParseException("Missing closing parenthesis"))
+            | Id name :: tail ->
+                match symbTable.TryFind(name) with
+                | Some v -> (tail, v)
+                | None -> raise (ParseException($"Unknown variable: {name}"))
             | _ -> raise (ParseException("Unknown NR token"))
         and parseArgs tList acc =
             match tList with
-            | Rpar :: _ -> (tList, List.rev acc)  // return the list starting at Rpar
+            | Rpar :: _ -> (tList, List.rev acc)
             | _ ->
                 let (tLst, tval) = E tList
                 parseArgList tLst (tval :: acc)
@@ -233,16 +237,21 @@ module interpreter =
                 let (tLst, tval) = E tail
                 parseArgList tLst (tval :: acc)
             | _ -> (tList, acc)
-        let (rest, result) = E tList
-        if not rest.IsEmpty then raise (ParseException("Trailing character in parser output")) 
-        (rest, result)
-    
+        match tList with
+        | Id name :: Eq :: tail ->
+            let (_, value) = E tail
+            symbTable <- symbTable.Add(name, value)
+            ([], value)
+        | _ ->
+            let (rest, result) = E tList
+            if not rest.IsEmpty then raise (ParseException("Trailing character in parser output")) 
+            (rest, result)
+            
     let toJson(result: EvalResult) =
         match result with
         | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
         
-    // If stepsize does not divide through the range as a whole integer than lexer will fail as floating points not implemented
     let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
         let xs = [| for x in seq { float xMin .. stepSize .. float xMax } -> x |]
         let ys = xs |> Array.map ( fun x ->
