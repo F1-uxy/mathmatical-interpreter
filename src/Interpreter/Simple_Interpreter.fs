@@ -71,6 +71,20 @@ module interpreter =
             let newValue = currentValue + digitValue * place
             scFrac tail newValue (place/10.0)
         | _ -> (input, currentValue)
+    
+    let rec scExpDigits input sign acc =
+        match input with
+        | c :: tail when isdigit c ->
+            scExpDigits tail sign (acc * 10 + intVal c)
+        | _ -> (input, Some (sign * acc)) 
+    
+    let rec scExp (input: char list)=
+        match input with
+        | '+' :: tail -> scExpDigits tail 1 0
+        | '-' :: tail -> scExpDigits tail -1 0
+        | c :: _ when isdigit c -> scExpDigits input 1 0
+        | _ -> (input, None)
+            
         
     let rec scInt(iStr, iVal) = 
         match iStr with
@@ -84,7 +98,11 @@ module interpreter =
         match input with
         | c :: tail when isid c -> scId (tail, acc + string c)
         | _ -> (input, acc)
-        
+
+
+    
+
+
     let knownFunctions : Map<string, NumericValue list -> NumericValue> =
         Map.ofList [
             "sin", (fun args -> 
