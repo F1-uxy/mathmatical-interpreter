@@ -5,6 +5,8 @@
 
 namespace MathInterpreter
 
+open System.Diagnostics
+
 module interpreter = 
 
     open System
@@ -14,7 +16,15 @@ module interpreter =
         IntVal of int | FloatVal of float
     type terminal = 
         Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | Num of NumericValue | Id of string
-    
+    type Expr =
+        | Int of NumericValue
+        | Binary of Expr * string * Expr
+        | Assign of string * Expr
+        | Unary of string * Expr
+        | Power of Expr * Expr
+        | FunCall of string * Expr list
+        | Var of string
+        
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
 
@@ -169,7 +179,132 @@ module interpreter =
     // <FCall>    ::= Id "(" <Args> ")"
     // <Args>     ::= <E> <ArgList> | <empty>
     // <ArgList> ::= "," <E> <ArgList> | <empty>
+    
+    let rec astEvaluate expr =
+        match expr with
+        | Int n -> n
+        | Unary("-", e) ->
+            match astEvaluate e with
+            | IntVal n -> IntVal (-n)
+            | FloatVal f -> FloatVal (-f)
+        | Binary(left, op, right) ->
+            let lVal = astEvaluate left
+            let rVal = astEvaluate right
+            match op with
+            | "+" -> addNums lVal rVal
+            | "-" -> subNums lVal rVal            
+            | "*" -> mulNums lVal rVal
+            | "/" -> divNums lVal rVal
+            | _ -> raise (ParseException($"Unknown operator: {op}"))
+        | Power(left, right) ->
+            powNums (astEvaluate left) (astEvaluate right)
+        | Assign(name, expr) ->
+            let value = astEvaluate expr
+            symbTable <- symbTable.Add(name, value)
+            value
+        | Var name ->
+            match symbTable.TryFind(name) with
+            | Some v -> v
+            | None -> raise (ParseException($"Unknown variable: {name}"))
+        | FunCall(name, args) ->
+            let argVals = args |> List.map astEvaluate
+            match knownFunctions.TryFind(name) with
+            | Some f -> f argVals
+            | None -> raise (ParseException($"Unknown function: { name }"))
+        | _ -> raise(ParseException($"Unkown expression: { expr }"))
 
+    let rec parse tList =
+        let rec S tlist =
+            match tList with
+            | Id name :: Eq :: tail ->
+                let (rest, expr) = E tail
+                (rest, Assign(name, expr))
+            | _ -> E tList
+                
+        and E tList = 
+            let (tList', left) = T tList
+            Eopt (tList', left)
+
+        and Eopt (tList, left) = 
+            match tList with
+            | Add :: tail -> 
+                let (tList', right) = T tail
+                Eopt (tList', Binary(left, "+", right))
+            | Sub :: tail -> 
+                let (tList', right) = T tail
+                Eopt (tList', Binary(left, "-", right))
+            | _ -> (tList, left)
+
+        and T tList =
+            let (tList', left) = P tList
+            Topt (tList', left)
+
+        and Topt (tList, left) =
+            match tList with
+            | Mul :: tail -> 
+                let (tList', right) = F tail
+                Topt (tList', Binary(left, "*", right))
+            | Div :: tail -> 
+                let (tList', right) = F tail
+                Topt (tList', Binary(left, "/", right))
+            | Mod :: tail -> 
+                let (tList', right) = F tail
+                Topt (tList', Binary(left, "%", right))
+            | _ -> (tList, left)
+        
+        and P tList =
+            let(tList', left) = F tList
+            Popt (tList', left)
+        
+        and Popt (tList, left) =
+            match tList with
+            | Pow :: tail ->
+                let (tList', right) = P tail
+                Popt (tList', Power(left, right))
+            | _ -> (tList, left)
+        
+        and F tList =
+            match tList with
+            | Id name :: Lpar :: tail ->
+                let (rest, args) = Args tail
+                match rest with
+                | Rpar :: rest' -> (rest', FunCall(name, args))
+                | _ -> raise (ParseException "Expected ')' after function call")
+            | _ -> NR tList
+
+        and NR tList =
+            match tList with
+            | Sub :: tail ->
+                let (rest, expr) = NR tail
+                (rest, Unary("-", expr))
+            | Lpar :: tail ->
+                let (rest, expr) = E tail
+                match rest with
+                | Rpar :: rest' -> (rest', expr)
+                | _ -> raise (ParseException "Expected ')'")
+            | Num n :: tail -> (tail, Int(n))
+            | Id name :: tail -> (tail, Var(name))
+            | _ -> raise (ParseException "Unexpected token in factor")
+        
+        and Args tList =
+            match tList with
+            | Rpar :: _ -> (tList, [])
+            | _ -> let (tList', first) = E tList
+                   ArgList(tList', [first])
+        
+        and ArgList (tList, acc) =
+            match tList with
+            | Comma :: tail ->
+                let (tList', next) = E tail
+                ArgList (tList', next :: acc)
+            | _ -> (tList, List.rev acc)
+            
+        match tList with
+        | [] -> raise (ParseException "Empty input")
+        | _ ->
+            let (rest, expr) = S tList
+            (rest, expr)
+            
     let rec parseNeval tList =
         let evalFunc name args =
             match knownFunctions.TryFind(name) with
@@ -273,19 +408,28 @@ module interpreter =
                       
         | [] -> Console.Write("EOL\n")
                 []
+                
+    let printValue = function
+    | IntVal x -> string x
+    | FloatVal f -> string f
 
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (rest, result) = parseNeval tokens
+        result
+    
+    let evaluateAST(expr: string) : NumericValue =
+        let tokens = lexer expr
+        let (_, ast) = parse tokens
+        let result = astEvaluate ast
         result
 
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
         let input:string = getInputString()
-        let oList = lexer input
-        let pList = printTList (oList)
-        let Out = parseNeval oList
-        Console.WriteLine("Result = {0}", snd Out)
+        let res = evaluateAST input
+        printfn "Result: %A" res
+        printfn "Symbol Table: %A" symbTable
         0
 
