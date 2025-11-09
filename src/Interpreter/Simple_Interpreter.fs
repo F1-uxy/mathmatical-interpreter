@@ -304,84 +304,7 @@ module interpreter =
         | _ ->
             let (rest, expr) = S tList
             (rest, expr)
-            
-    let rec parseNeval tList =
-        let evalFunc name args =
-            match knownFunctions.TryFind(name) with
-            | Some f -> f args
-            | None -> raise (ParseException($"Unknown function: { name }" ))
 
-        let rec E tList = (T >> Eopt) tList
-        and Eopt (tList, value) = 
-            match tList with
-            | Add :: tail -> let (tLst, tval) = T tail
-                             Eopt (tLst, addNums value  tval)
-            | Sub :: tail -> let (tLst, tval) = T tail
-                             Eopt (tLst, subNums value  tval)
-            | _ -> (tList, value)
-        and T tList = (P >> Topt) tList
-        and Topt (tList, value) =
-            match tList with
-            | Mul :: tail -> let (tLst, pval) = P tail
-                             Topt (tLst, mulNums value  pval)
-            | Div :: tail -> let (tLst, pval) = P tail
-                             Topt (tLst, divNums value  pval)
-            | Mod :: tail -> let (tLst, pval) = P tail
-                             Topt (tLst, modNums value  pval)
-            | _ -> (tList, value)
-        and P tList = (NR >> Popt) tList
-        and Popt (tList, base_val) =
-            match tList with
-            | Pow :: tail ->
-                let (tLst,exp_val) = P tail
-                (tLst, powNums base_val exp_val)
-            | _ -> (tList,base_val)
-        and NR tList =
-            match tList with
-            | Add :: tail -> NR tail
-            | Sub :: tail ->
-                let (tLst, tval) = NR tail
-                (tLst, negNum tval)
-            | Num value :: tail -> (tail, value)
-            | Lpar :: tail -> 
-                let (tLst, tval) = E tail
-                match tLst with 
-                | Rpar :: tail -> (tail, tval)
-                | _ -> raise (ParseException("Missing closing parenthesis"))
-            | Id name :: Lpar :: tail ->
-                let (tLst, args) = parseArgs tail []
-                match tLst with
-                | Rpar :: rest ->
-                    let value = evalFunc name args
-                    (rest, value)
-                | _ -> raise (ParseException("Missing closing parenthesis"))
-            | Id name :: tail ->
-                match symbTable.TryFind(name) with
-                | Some v -> (tail, v)
-                | None -> raise (ParseException($"Unknown variable: {name}"))
-            | _ -> raise (ParseException("Unknown NR token"))
-        and parseArgs tList acc =
-            match tList with
-            | Rpar :: _ -> (tList, List.rev acc)
-            | _ ->
-                let (tLst, tval) = E tList
-                parseArgList tLst (tval :: acc)
-        and parseArgList tList acc =
-            match tList with
-            | Comma :: tail ->
-                let (tLst, tval) = E tail
-                parseArgList tLst (tval :: acc)
-            | _ -> (tList, acc)
-        match tList with
-        | Id name :: Eq :: tail ->
-            let (_, value) = E tail
-            symbTable <- symbTable.Add(name, value)
-            ([], value)
-        | _ ->
-            let (rest, result) = E tList
-            if not rest.IsEmpty then raise (ParseException("Trailing character in parser output")) 
-            (rest, result)
-            
     let toJson(result: EvalResult) =
         match result with
         | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
@@ -393,7 +316,8 @@ module interpreter =
             let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
             let substituted = expr.Replace("x", replacement)
             let lexed = lexer substituted
-            let (_, result) = parseNeval lexed
+            let (_, ast) = parse lexed
+            let result = astEvaluate ast
             toFloat result
             )
         
@@ -415,11 +339,6 @@ module interpreter =
 
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
-        let (rest, result) = parseNeval tokens
-        result
-    
-    let evaluateAST(expr: string) : NumericValue =
-        let tokens = lexer expr
         let (_, ast) = parse tokens
         let result = astEvaluate ast
         result
@@ -428,7 +347,7 @@ module interpreter =
     let main argv  =
         Console.WriteLine("Simple Interpreter")
         let input:string = getInputString()
-        let res = evaluateAST input
+        let res = evaluate input
         printfn "Result: %A" res
         printfn "Symbol Table: %A" symbTable
         0

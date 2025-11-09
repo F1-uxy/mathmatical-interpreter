@@ -212,7 +212,7 @@ namespace GUI
             try
             {
                 var result = MathInterpreter.interpreter.evaluate(expression);
-
+                
                 string resultStr;
 
                 if (result is MathInterpreter.interpreter.NumericValue.IntVal intCase)
