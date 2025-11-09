@@ -360,7 +360,7 @@ module interpreter =
                         let (restElse, elseExpr) = Comp tailElse
                         restElse, IfExpr(condExpr, thenExpr, Some elseExpr)
                     | _ -> restThen, IfExpr(condExpr, thenExpr, None)
-                | _ -> raise(ParseException("Expected ')' and 'then'"))
+                | _ -> raise(ParseException("Unknown conditional form"))
             | Id name :: Lpar :: tail ->
                 let (rest, args) = Args tail
                 match rest with
