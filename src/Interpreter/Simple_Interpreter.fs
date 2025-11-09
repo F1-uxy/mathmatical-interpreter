@@ -15,7 +15,7 @@ module interpreter =
     type NumericValue =
         IntVal of int | FloatVal of float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
@@ -25,6 +25,7 @@ module interpreter =
         | FunCall of string * Expr list
         | Var of string
         | IfExpr of Expr * Expr * Expr option
+        | Prog of Expr list
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
@@ -151,6 +152,7 @@ module interpreter =
             | ')'::tail -> Rpar:: scan tail
             | ','::tail -> Comma:: scan tail
             | '='::tail -> Eq :: scan tail
+            | ';'::tail -> Semi :: scan tail
             | c :: tail when isblank c -> scan tail
             | c :: tail when isdigit c ->
                 let (rest, numToken) = scInt(tail, intVal c) 
@@ -168,21 +170,29 @@ module interpreter =
         Console.ReadLine()
 
     // Grammar in BNF:
+    // <Prog>     ::= <S> (";" <S>)*
     // <S>        ::= Id "=" <E> | <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
-    // <T>        ::= <NR> <Topt>
+    // <T>        ::= <P> <Topt>
     // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
     // <P>        ::= <F> <Popt>
     // <Popt>     ::= "^" <P> | <empty>
     // <F>        ::= <NR> | <FCall> 
-    // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")"
+    // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")" | Id
     // <FCall>    ::= Id "(" <Args> ")"
     // <Args>     ::= <E> <ArgList> | <empty>
     // <ArgList> ::= "," <E> <ArgList> | <empty>
     
     let rec astEvaluate expr =
         match expr with
+        | Prog(statements) ->
+            let lastVal =
+                statements |> List.fold (fun (lastVal) stmt ->
+                    let value = astEvaluate stmt
+                    value
+                ) (IntVal 0)
+            lastVal
         | Int n -> n
         | Unary("-", e) ->
             match astEvaluate e with
@@ -225,13 +235,28 @@ module interpreter =
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
 
     let rec parse tList =
-        let rec S tlist =
+        let rec Program tList =
+            let rec collect stmts tokens =
+                match tokens with
+                | [] -> ([], Prog (List.rev stmts))
+                | [Semi] -> ([], Prog (List.rev stmts))  // final semicolon
+                | Semi :: tail -> collect stmts tail
+                | _ ->
+                    let (rest, stmt) = S tokens
+                    match rest with
+                    | [] | [Semi] -> ([], Prog (List.rev (stmt :: stmts)))
+                    | Semi :: tail -> collect (stmt :: stmts) tail
+                    | _ -> collect (stmt :: stmts) rest
+            collect [] tList
+
+            
+        and S tList =
             match tList with
             | Id name :: Eq :: tail ->
                 let (rest, expr) = E tail
                 (rest, Assign(name, expr))
             | _ -> E tList
-                
+        
         and E tList = 
             let (tList', left) = T tList
             Eopt (tList', left)
@@ -324,7 +349,7 @@ module interpreter =
         match tList with
         | [] -> raise (ParseException "Empty input")
         | _ ->
-            let (rest, expr) = S tList
+            let (rest, expr) = Program tList
             (rest, expr)
 
     let toJson(result: EvalResult) =
@@ -363,7 +388,7 @@ module interpreter =
         let tokens = lexer expr
         let (_, ast) = parse tokens
         let result = astEvaluate ast
-        result
+        result  
 
     [<EntryPoint>]
     let main argv  =
