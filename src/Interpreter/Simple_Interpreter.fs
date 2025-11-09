@@ -10,6 +10,7 @@ module interpreter =
     open System
     open MathInterpreter.Exceptions
     open Newtonsoft.Json
+
     type NumericValue =
         IntVal of int | FloatVal of float
     type terminal = 
@@ -168,7 +169,7 @@ module interpreter =
     // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")"
     // <FCall>    ::= Id "(" <Args> ")"
     // <Args>     ::= <E> <ArgList> | <empty>
-    // <ArgList> ::= "," <E> <ArgList> | <empty>
+    // <ArgList>  ::= "," <E> <ArgList> | <empty>
 
     let rec parseNeval tList =
         let evalFunc name args =
