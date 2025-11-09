@@ -90,11 +90,30 @@ module interpreter =
         
     let rec scInt(iStr, iVal) = 
         match iStr with
-        | '.' :: tail ->
+        | '.' :: tail -> 
             let (rest, fracValue) = scFrac tail 0.0 0.1
-            (rest, Num (FloatVal(float iVal + fracValue )))
+            let baseValue = float iVal + fracValue
+            
+            match rest with
+            | 'e' :: expTail | 'E' :: expTail ->
+                let (finalRest, expOpt) = scExp expTail
+                match expOpt with
+                | Some exp ->
+                    (finalRest, Num(FloatVal(baseValue * Math.Pow(10.0, float exp))))
+                | None ->
+                    (rest, Num (FloatVal baseValue))
+            | _ -> (rest, Num (FloatVal baseValue))
+        | 'e' :: tail | 'E' :: tail ->
+            let (rest, expOpt) = scExp tail
+            match expOpt with
+            | Some exp ->
+                let result = float iVal * Math.Pow(10.0, float exp)
+                (rest, Num(FloatVal result) )
+            | None ->
+                (iStr, Num (IntVal iVal))
         | c :: tail when isdigit c -> scInt(tail, 10*iVal+(intVal c))
         | _ -> (iStr, Num (IntVal iVal))
+        
     
     let rec scId(input, acc) =
         match input with
@@ -146,7 +165,16 @@ module interpreter =
                 numToken :: scan rest
             | '.' :: tail -> 
                 let (rest, fracValue) = scFrac tail 0.0 0.1
-                Num (FloatVal fracValue) :: scan rest
+                match rest with
+                | 'e' :: expTail | 'E' :: expTail ->
+                    let (finalRest,expOpt) = scExp expTail
+                    match expOpt with
+                    | Some exp ->
+                        let value = fracValue * Math.Pow(10.0, float exp)
+                        Num (FloatVal value) :: scan finalRest
+                    | None ->
+                        Num (FloatVal fracValue) :: scan rest
+                | _ -> Num (FloatVal fracValue) :: scan rest
             | c :: tail when islord c -> let (rest, name) = scId(tail, string c)
                                          Id name :: scan rest
             | _ -> raise (LexerException("Invalid character"))
