@@ -15,10 +15,11 @@ module interpreter =
     type NumericValue =
         IntVal of int | FloatVal of float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | Semi | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | EqEq | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
+        | Eqiv of Expr * Expr
         | Assign of string * Expr
         | Unary of string * Expr
         | Power of Expr * Expr
@@ -78,6 +79,13 @@ module interpreter =
         | IntVal x -> IntVal (-x)
         | FloatVal x -> FloatVal (-x)
 
+    let numericEqual (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | IntVal x, IntVal y -> x = y
+        | FloatVal x, FloatVal y -> x = y
+        | IntVal x, FloatVal y -> float x = y
+        | FloatVal x, IntVal y -> x = float y
+    
     let rec scFrac (input: char list) (currentValue: float) (place: float) =
         match input with
         | c :: tail when isdigit c ->
@@ -151,6 +159,7 @@ module interpreter =
             | '('::tail -> Lpar:: scan tail
             | ')'::tail -> Rpar:: scan tail
             | ','::tail -> Comma:: scan tail
+            | '='::'='::tail -> EqEq :: scan tail
             | '='::tail -> Eq :: scan tail
             | ';'::tail -> Semi :: scan tail
             | c :: tail when isblank c -> scan tail
@@ -171,7 +180,8 @@ module interpreter =
 
     // Grammar in BNF:
     // <Prog>     ::= <S> (";" <S>)*
-    // <S>        ::= Id "=" <E> | <E>
+    // <S>        ::= Id "=" <Comp> | <Comp>
+    // <Comp>     ::= <E> | "==" <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <P> <Topt>
@@ -181,8 +191,8 @@ module interpreter =
     // <F>        ::= <NR> | <FCall> 
     // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")" | Id
     // <FCall>    ::= Id "(" <Args> ")"
-    // <Args>     ::= <E> <ArgList> | <empty>
-    // <ArgList> ::= "," <E> <ArgList> | <empty>
+    // <Args>     ::= <Comp> <ArgList> | <empty>
+    // <ArgList> ::= "," <Comp> <ArgList> | <empty>
     
     let rec astEvaluate expr =
         match expr with
@@ -207,6 +217,10 @@ module interpreter =
             | "*" -> mulNums lVal rVal
             | "/" -> divNums lVal rVal
             | _ -> raise (ParseException($"Unknown operator: {op}"))
+        | Eqiv(left, right) ->
+            let lVal = astEvaluate left 
+            let rVal = astEvaluate right
+            if numericEqual lVal rVal then IntVal 1 else IntVal 0
         | Power(left, right) ->
             powNums (astEvaluate left) (astEvaluate right)
         | Assign(name, expr) ->
@@ -248,14 +262,21 @@ module interpreter =
                     | Semi :: tail -> collect (stmt :: stmts) tail
                     | _ -> collect (stmt :: stmts) rest
             collect [] tList
-
             
         and S tList =
             match tList with
             | Id name :: Eq :: tail ->
-                let (rest, expr) = E tail
+                let (rest, expr) = Comp tail
                 (rest, Assign(name, expr))
-            | _ -> E tList
+            | _ -> Comp tList
+        
+        and Comp tList =
+            let (rest, left) = E tList
+            match rest with
+            | EqEq :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, right))
+            | _ -> (rest, left)
         
         and E tList = 
             let (tList', left) = T tList
@@ -302,13 +323,13 @@ module interpreter =
         and F tList =
             match tList with
             | Id "if" :: Lpar :: tail ->
-                let (restCond, condExpr) = E tail
+                let (restCond, condExpr) = Comp tail
                 match restCond with
                 | Rpar :: Id "then" :: thenTail ->
-                    let (restThen, thenExpr) = E thenTail
+                    let (restThen, thenExpr) = Comp thenTail
                     match restThen with
                     | Id "else" :: tailElse ->
-                        let (restElse, elseExpr) = E tailElse
+                        let (restElse, elseExpr) = Comp tailElse
                         restElse, IfExpr(condExpr, thenExpr, Some elseExpr)
                     | _ -> restThen, IfExpr(condExpr, thenExpr, None)
                 | _ -> raise(ParseException("Expected ')' and 'then'"))

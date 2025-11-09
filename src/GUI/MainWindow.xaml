@@ -33,7 +33,7 @@
                     <RowDefinition Height="8*"/>
                 </Grid.RowDefinitions>
                 
-                <DataGrid Grid.Row="2" ItemsSource="{ Binding SymbolTable }" AutoGenerateColumns="False">
+                <DataGrid Grid.Row="2" ItemsSource="{ Binding SymbolTable }" AutoGenerateColumns="False" IsReadOnly="True">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Variable" Binding="{Binding SymbolTableKey}" Width="5*"></DataGridTextColumn>
                         <DataGridTextColumn Header="Value" Binding="{Binding SymbolTableValue}" Width="5*"></DataGridTextColumn>

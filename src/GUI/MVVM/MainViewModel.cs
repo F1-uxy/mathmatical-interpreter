@@ -14,6 +14,7 @@ using System.Windows.Shapes;
 using OxyPlot;
 using OxyPlot.Series;
 using System.ComponentModel;
+using System.DirectoryServices.ActiveDirectory;
 using System.Runtime.CompilerServices;
 using Microsoft.FSharp.Core;
 using Microsoft.FSharp.Collections;
@@ -47,7 +48,8 @@ namespace GUI
 
         public PlotModel MyModel { get; private set; }
 
-
+        public ObservableCollection<SymbolTableEntry> SymbolTable { get; } = new ObservableCollection<SymbolTableEntry>();
+        
         public MainViewModel()
         {
             //Func<double, double> myFun1 = (x) => 2 * x;
@@ -142,7 +144,7 @@ namespace GUI
                 }
             }
         }
-
+        
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
@@ -241,7 +243,9 @@ namespace GUI
                     resultStr = "Unknown result";
 
                 AppendToConsole($"= {resultStr}", false);
+                
                 InputExpression = string.Empty;
+                UpdateSymbolTable();
             }
             catch (MathInterpreter.Exceptions.LexerException e)
             {
@@ -255,6 +259,26 @@ namespace GUI
             {
                 AppendExceptionToConsole(e);
             }
+            catch (MathInterpreter.Exceptions.FunctionArgsException e)
+            {
+                AppendExceptionToConsole(e);
+            }
+            
+        }
+
+        public void UpdateSymbolTable()
+        {
+            SymbolTable.Clear();
+            foreach (var symbolTableEntry in MathInterpreter.interpreter.symbTable)
+            {
+                SymbolTable.Add(new SymbolTableEntry{ SymbolTableKey = symbolTableEntry.Key, 
+                                      SymbolTableValue = symbolTableEntry.Value.ToString()});
+            }
+        }
+        
+        public void AddSymbol(string key, string value)
+        {
+            SymbolTable.Add(new SymbolTableEntry() { SymbolTableKey = key, SymbolTableValue = value });
             
         }
     }
