@@ -24,6 +24,7 @@ module interpreter =
         | Power of Expr * Expr
         | FunCall of string * Expr list
         | Var of string
+        | IfExpr of Expr * Expr * Expr option
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
@@ -211,6 +212,16 @@ module interpreter =
             match knownFunctions.TryFind(name) with
             | Some f -> f argVals
             | None -> raise (ParseException($"Unknown function: { name }"))
+        | IfExpr(expr1, expr2, exprOption) ->
+            let isTrue =
+                match astEvaluate expr1 with
+                | IntVal n -> n > 0
+                | FloatVal f -> f > 0.0
+            if isTrue then astEvaluate expr2
+            else
+                match exprOption with
+                | Some expr -> astEvaluate expr
+                | None -> IntVal 0
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
 
     let rec parse tList =
@@ -265,6 +276,17 @@ module interpreter =
         
         and F tList =
             match tList with
+            | Id "if" :: Lpar :: tail ->
+                let (restCond, condExpr) = E tail
+                match restCond with
+                | Rpar :: Id "then" :: thenTail ->
+                    let (restThen, thenExpr) = E thenTail
+                    match restThen with
+                    | Id "else" :: tailElse ->
+                        let (restElse, elseExpr) = E tailElse
+                        restElse, IfExpr(condExpr, thenExpr, Some elseExpr)
+                    | _ -> restThen, IfExpr(condExpr, thenExpr, None)
+                | _ -> raise(ParseException("Expected ')' and 'then'"))
             | Id name :: Lpar :: tail ->
                 let (rest, args) = Args tail
                 match rest with
