@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -32,7 +34,7 @@ namespace GUI
         private float _xMinInput = 0;
         private float _xMaxInput = 0;
         private float _stepInput = 0;
-        
+        private bool _markerEnabled = false;
         
         public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
         
@@ -44,14 +46,19 @@ namespace GUI
         public RelayCommand PlotEnter => new RelayCommand(_ => PlotExpression());
 
         public PlotModel MyModel { get; private set; }
+
+
         public MainViewModel()
         {
             //Func<double, double> myFun1 = (x) => 2 * x;
             Func<double, double> sinFunc = (x) => Math.Sin(x);
             this.MyModel = new PlotModel { Title = "sin(x)" };
             this.MyModel.Series.Add(new FunctionSeries(sinFunc, 0, 10, 0.1, "sin(x)"));
-
+            
             AppendToConsole(">> Welcome", false);
+            XMinInput = 0;
+            XMaxInput = 10;
+            StepInput = 0.1f;
         }
         
         
@@ -109,7 +116,20 @@ namespace GUI
                 }
             }
         }
-        
+
+        public bool MarkerEnabled
+        {
+            get => _markerEnabled;
+            set
+            {
+                if (_markerEnabled != value)
+                {
+                    _markerEnabled = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public string InputExpression
         {
             get => _inputExpression;
@@ -170,24 +190,22 @@ namespace GUI
             try
             {
                 string json = MathInterpreter.interpreter.evalPlot(expression, XMinInput, XMaxInput, StepInput);
-                var obj = JObject.Parse(json);
+                JObject obj = JObject.Parse(json);
                 string type = (string)obj["type"];
 
                 if (type == "plot")
                 {
-                    // Extract arrays
                     double[] x = obj["x"].ToObject<double[]>();
                     double[] y = obj["y"].ToObject<double[]>();
 
-                    // Create new plot model
-                    var model = new PlotModel { Title = $"{expression}" };
-                    var series = new LineSeries
+                    PlotModel model = new PlotModel { Title = $"{expression}" };
+                    LineSeries series = new LineSeries { Title = expression };
+                    if (MarkerEnabled && series != null)
                     {
-                        Title = expression,
-                        MarkerType = MarkerType.Circle,
-                        MarkerSize = 3,
-                        MarkerStroke = OxyColors.Black
-                    };
+                        series.MarkerType = MarkerType.Circle;
+                        series.MarkerSize = 3;
+                        series.MarkerStroke = OxyColors.Black;
+                    }
 
                     for (int i = 0; i < x.Length; i++)
                     {
@@ -223,6 +241,7 @@ namespace GUI
                     resultStr = "Unknown result";
 
                 AppendToConsole($"= {resultStr}", false);
+                InputExpression = string.Empty;
             }
             catch (MathInterpreter.Exceptions.LexerException e)
             {
