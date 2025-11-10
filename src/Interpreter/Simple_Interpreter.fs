@@ -62,8 +62,12 @@ module interpreter =
         | (FloatVal 0.0, _) | (IntVal 0, _) -> 
             raise(DivisionByZeroException("Division by zero"))
         | (IntVal x, IntVal y) when x % y = 0 -> IntVal (x / y)
-        | _ -> FloatVal (toFloat a / toFloat b)
-    
+        | _ -> 
+            let result = toFloat a / toFloat b
+            if result = floor result then
+                IntVal (int result)
+            else
+                FloatVal result
     let modNums a b =
         match (a, b) with
         | (IntVal x, IntVal y) -> IntVal (x % y)
