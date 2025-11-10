@@ -331,13 +331,13 @@ module interpreter =
         and Topt (tList, left) =
             match tList with
             | Mul :: tail -> 
-                let (tList', right) = F tail
+                let (tList', right) = P tail
                 Topt (tList', Binary(left, "*", right))
             | Div :: tail -> 
-                let (tList', right) = F tail
+                let (tList', right) = P tail
                 Topt (tList', Binary(left, "/", right))
             | Mod :: tail -> 
-                let (tList', right) = F tail
+                let (tList', right) = P tail
                 Topt (tList', Binary(left, "%", right))
             | _ -> (tList, left)
         
