@@ -171,7 +171,6 @@ namespace GUI
         private void AppendToConsole(string str, bool marker)
         {
             StatusMessage += marker ? $">> { str }\n" : $"{ str }\n";
-
         }
 
         private void AppendExceptionToConsole(Exception ex)
@@ -237,8 +236,10 @@ namespace GUI
 
                 if (result is MathInterpreter.interpreter.NumericValue.IntVal intCase)
                     resultStr = intCase.Item.ToString();
-                else if (result is MathInterpreter.interpreter.NumericValue.FloatVal floatCase)
-                    resultStr = floatCase.Item.ToString();
+                else if (result is MathInterpreter.interpreter.NumericValue.FloatVal floatCase) 
+                {
+                    resultStr = floatCase.Item.ToString("0.0000");
+                }
                 else
                     resultStr = "Unknown result";
 
