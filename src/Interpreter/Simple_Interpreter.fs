@@ -6,12 +6,15 @@
 namespace MathInterpreter
 
 open System.Diagnostics
+open Cloo.Extensions
 
 module interpreter = 
 
     open System
     open MathInterpreter.Exceptions
     open Newtonsoft.Json
+    open Cloo
+    
     type NumericValue =
         IntVal of int | FloatVal of float
     type terminal = 
@@ -29,9 +32,19 @@ module interpreter =
         | Prog of Expr list
         
     type EvalResult =
-        Number of NumericValue | Plot of X: float[] * Y: float[]
+        Number of NumericValue | Plot of X: float32[] * Y: float32[]
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
+    
+    let platform = ComputePlatform.Platforms[0]
+    let device = platform.Devices[0]
+    let context = new ComputeContext (
+        [| device |],
+        new ComputeContextPropertyList(platform),
+        null, IntPtr.Zero)
+    let queue = new ComputeCommandQueue(context, device, ComputeCommandQueueFlags.None)
+
+
     
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
@@ -441,17 +454,41 @@ module interpreter =
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
         
     let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
-        let xs = [| for x in seq { float xMin .. stepSize .. float xMax } -> x |]
-        let ys = xs |> Array.map ( fun x ->
-            let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
-            let substituted = expr.Replace("x", replacement)
-            let lexed = lexer substituted
-            let (_, ast) = parse lexed
-            let result = astEvaluate ast
-            toFloat result
-            )
+        let xs = [| for x in seq { float32 xMin ..  float32 stepSize .. float32 xMax } -> x |]
+        let substituted = expr.Replace("x", "input[id]")
+        let result = Array.zeroCreate<float32> xs.Length
+        let resultRef = ref result
+        let kernelSource = $"""
+                __kernel void evaluateExpression(
+                    __global const float* input,
+                    __global float* output)
+                {{
+                    int id = get_global_id(0);
+                    output[id] = { substituted };
+                }}
+        """
         
-        let res = Plot(xs, ys)
+        let inputBuffer = new ComputeBuffer<float32>(context,
+                                                     ComputeMemoryFlags.ReadOnly ||| ComputeMemoryFlags.CopyHostPointer,
+                                                     xs)
+       
+        let outputBuffer = new ComputeBuffer<float32>(context,
+                                                     ComputeMemoryFlags.WriteOnly,
+                                                     xs.Length)
+        
+        let program = new ComputeProgram(context, kernelSource)
+        program.Build(null, null, null, IntPtr.Zero)
+        
+        let kernel = program.CreateKernel("evaluateExpression")
+        kernel.SetMemoryArgument(0, inputBuffer)
+        kernel.SetMemoryArgument(1, outputBuffer)
+        
+        let workSize = int64 xs.Length
+        queue.Execute(kernel, null, [| workSize |], null, null)
+        queue.ReadFromBuffer(outputBuffer, resultRef, true, null)
+        
+        let final  = !resultRef
+        let res = Plot(xs, final)
         let ret = toJson(res)
         ret
     
@@ -472,10 +509,51 @@ module interpreter =
         let (_, ast) = parse tokens
         let result = astEvaluate ast
         result  
+        
+    let kernelSource = $"""
+                __kernel void evaluateExpression(
+                    __global const float* input,
+                    __global float* output)
+                {{
+                    int id = get_global_id(0);
+                    output[id] = sin(input[id]);
+                }}
+            """
 
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
+        let deviceNames = ClooExtensions.GetDeviceNames();
+        Console.WriteLine($"Platform { platform } ; Device { device } ; Context { context }")
+        for device in deviceNames do
+            Console.WriteLine($"{device}")
+            
+        let data = [| 1.f; 2.f; 3.f; 4.f; 5.f; |]
+        let result = Array.zeroCreate<float32> data.Length
+        let resultRef = ref result
+        let inputBuffer = new ComputeBuffer<float32>(context,
+                                                     ComputeMemoryFlags.ReadOnly ||| ComputeMemoryFlags.CopyHostPointer,
+                                                     data)
+       
+        let outputBuffer = new ComputeBuffer<float32>(context,
+                                                     ComputeMemoryFlags.WriteOnly,
+                                                     data.Length)
+        
+        let program = new ComputeProgram(context, kernelSource)
+        program.Build(null, null, null, IntPtr.Zero)
+        
+        let kernel = program.CreateKernel("evaluateExpression")
+        kernel.SetMemoryArgument(0, inputBuffer)
+        kernel.SetMemoryArgument(1, outputBuffer)
+        
+        let workSize = int64 data.Length
+        queue.Execute(kernel, null, [| workSize |], null, null)
+        queue.ReadFromBuffer(outputBuffer, resultRef, true, null)
+        
+        let final  = !resultRef
+        printfn "%A" final
+        
+        
         let input:string = getInputString()
         let res = evaluate input
         printfn "Result: %A" res
