@@ -22,6 +22,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using MathInterpreter;
 using GUI.MVVM;
+using OxyPlot.Axes;
 
 namespace GUI
 {
@@ -31,11 +32,13 @@ namespace GUI
         private readonly WindowService _windowService =  new WindowService();
         // Status TextBlock
         private string _statusMessage = string.Empty;
+        private string _currentExpression = string.Empty;
         private string _inputExpression = string.Empty;
         private float _xMinInput = 0;
         private float _xMaxInput = 0;
         private float _stepInput = 0;
         private bool _markerEnabled = false;
+        private bool _scaleEnabled = false;
         
         public RelayCommand ExitCommand => new RelayCommand(_ => Exit());
         
@@ -44,7 +47,7 @@ namespace GUI
 
         public RelayCommand InputEnter => new RelayCommand(_ => SubmitExpression());
 
-        public RelayCommand PlotEnter => new RelayCommand(_ => PlotExpression());
+        public RelayCommand PlotEnter => new RelayCommand(_ => RedrawExpression());
 
         public PlotModel MyModel { get; private set; }
 
@@ -52,15 +55,24 @@ namespace GUI
         
         public MainViewModel()
         {
-            //Func<double, double> myFun1 = (x) => 2 * x;
+            Func<double, double> myFun1 = (x) => 2 * x;
             Func<double, double> sinFunc = (x) => Math.Sin(x);
             this.MyModel = new PlotModel { Title = "sin(x)" };
             this.MyModel.Series.Add(new FunctionSeries(sinFunc, 0, 10, 0.1, "sin(x)"));
+            
+            LinearAxis xAxis = new LinearAxis { Position = AxisPosition.Bottom };
+            LinearAxis yAxis = new LinearAxis { Position = AxisPosition.Left };
+            
+            MyModel.Axes.Add(xAxis);
+            MyModel.Axes.Add(yAxis);
+
+            xAxis.AxisChanged += OnAxisChanged;
             
             AppendToConsole(">> Welcome", false);
             XMinInput = 0;
             XMaxInput = 10;
             StepInput = 0.1f;
+            CurrentExpression = "sin(x)";
         }
         
         
@@ -131,6 +143,19 @@ namespace GUI
                 }
             }
         }
+        
+        public bool ScaleEnabled
+        {
+            get => _scaleEnabled;
+            set
+            {
+                if (_scaleEnabled != value)
+                {
+                    _scaleEnabled = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
 
         public string InputExpression
         {
@@ -145,12 +170,38 @@ namespace GUI
             }
         }
         
+        public string CurrentExpression
+        {
+            get => _currentExpression;
+            set
+            {
+                if(_currentExpression != value)
+                {
+                    _currentExpression = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+        
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+        
+        private void OnAxisChanged(object? sender, AxisChangedEventArgs e)
+        {
+            if (sender is LinearAxis xAxis && ScaleEnabled)
+            {
+                double min = xAxis.ActualMinimum;
+                double max = xAxis.ActualMaximum;
 
+                PlotExpression(CurrentExpression, min, max);
+
+                MyModel.InvalidatePlot(false);
+            }
+        }
+        
         private void Exit()
         {
             Application.Current.Shutdown();
@@ -184,14 +235,19 @@ namespace GUI
             AppendToConsole(ex, false);
         }
 
-        private void PlotExpression()
+        private void RedrawExpression()
         {
-            string expression = _inputExpression.ToString();
-            if (expression == string.Empty) return;
+            PlotExpression(InputExpression, XMinInput, XMaxInput);
+            MyModel.InvalidatePlot(false);
+        }
 
+        private void PlotExpression(string expression, double xMin, double xMax)
+        {
+            if (expression == string.Empty) return;
+            CurrentExpression = expression;
             try
             {
-                string json = MathInterpreter.interpreter.evalPlot(expression, XMinInput, XMaxInput, StepInput);
+                string json = MathInterpreter.interpreter.evalPlot(expression, xMin, xMax, StepInput);
                 JObject obj = JObject.Parse(json);
                 string type = (string)obj["type"];
 
@@ -200,9 +256,12 @@ namespace GUI
                     double[] x = obj["x"].ToObject<double[]>();
                     double[] y = obj["y"].ToObject<double[]>();
 
-                    PlotModel model = new PlotModel { Title = $"{expression}" };
-                    LineSeries series = new LineSeries { Title = expression };
-                    if (MarkerEnabled && series != null)
+                    MyModel.Title = expression;
+                    MyModel.Series.Clear();
+                    var series = new LineSeries { Title = expression };
+                    //PlotModel model = new PlotModel { Title = $"{expression}" };
+                    //LineSeries series = new LineSeries { Title = expression };
+                    if (MarkerEnabled)
                     {
                         series.MarkerType = MarkerType.Circle;
                         series.MarkerSize = 3;
@@ -214,9 +273,9 @@ namespace GUI
                         series.Points.Add(new DataPoint(x[i], y[i]));
                     }
 
-                    model.Series.Add(series);
-                    MyModel = model;
-                    OnPropertyChanged(nameof(MyModel));
+                    MyModel.Series.Add(series);
+                    //MyModel.InvalidatePlot(true);
+                    //OnPropertyChanged(nameof(MyModel));
                 }
             }
             catch (Exception e)
