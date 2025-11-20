@@ -15,11 +15,11 @@ module interpreter =
     type NumericValue =
         IntVal of int | FloatVal of float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | EqEq | Semi | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
-        | Eqiv of Expr * Expr
+        | Eqiv of Expr * string * Expr
         | Assign of string * Expr
         | Unary of string * Expr
         | Power of Expr * Expr
@@ -62,7 +62,12 @@ module interpreter =
         | (FloatVal 0.0, _) | (IntVal 0, _) -> 
             raise(DivisionByZeroException("Division by zero"))
         | (IntVal x, IntVal y) when x % y = 0 -> IntVal (x / y)
-        | _ -> FloatVal (toFloat a / toFloat b)
+        | _ -> 
+            let result = toFloat a / toFloat b
+            if result = floor result then
+                IntVal (int result)
+            else
+                FloatVal result
     
     let modNums a b =
         match (a, b) with
@@ -86,6 +91,20 @@ module interpreter =
         | IntVal x, FloatVal y -> float x = y
         | FloatVal x, IntVal y -> x = float y
     
+    let numericGreaterThan (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | IntVal x, IntVal y -> x > y
+        | FloatVal x, FloatVal y -> x > y
+        | IntVal x, FloatVal y -> float x > y
+        | FloatVal x, IntVal y -> x > float y
+    
+    let numericLessThan (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | IntVal x, IntVal y -> x < y
+        | FloatVal x, FloatVal y -> x < y
+        | IntVal x, FloatVal y -> float x < y
+        | FloatVal x, IntVal y -> x < float y
+
     let rec scFrac (input: char list) (currentValue: float) (place: float) =
         match input with
         | c :: tail when isdigit c ->
@@ -180,6 +199,8 @@ module interpreter =
             | ','::tail -> Comma:: scan tail
             | '='::'='::tail -> EqEq :: scan tail
             | '='::tail -> Eq :: scan tail
+            | '>'::tail -> GT :: scan tail
+            | '<'::tail -> LT :: scan tail
             | ';'::tail -> Semi :: scan tail
             | c :: tail when isblank c -> scan tail
             | c :: tail when isdigit c ->
@@ -207,9 +228,12 @@ module interpreter =
         Console.ReadLine()
 
     // Grammar in BNF:
-    // <Prog>     ::= <S> (";" <S>)*
+    // <Prog>     ::= <S> (";" <S>)*                // Current implementation
+
+    // <Prog>     ::= <S> <Progopt>                 // Fixed implementation
+    // <Progopt>  ::= ";" <S> <Progopt> | <empty>
     // <S>        ::= Id "=" <Comp> | <Comp>
-    // <Comp>     ::= <E> | "==" <E>
+    // <Comp>     ::= <E> | "==" <E> | "<" <E> | ">" <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <P> <Topt>
@@ -245,10 +269,14 @@ module interpreter =
             | "*" -> mulNums lVal rVal
             | "/" -> divNums lVal rVal
             | _ -> raise (ParseException($"Unknown operator: {op}"))
-        | Eqiv(left, right) ->
+        | Eqiv(left, op, right) ->
             let lVal = astEvaluate left 
             let rVal = astEvaluate right
-            if numericEqual lVal rVal then IntVal 1 else IntVal 0
+            match op with
+            | "==" -> if numericEqual lVal rVal then IntVal 1 else IntVal 0
+            | ">" -> if numericGreaterThan lVal rVal then IntVal 1 else IntVal 0
+            | "<" -> if numericLessThan lVal rVal then IntVal 1 else IntVal 0
+            | _ -> raise(ParseException($"Unknown comparitor: {op}"))
         | Power(left, right) ->
             powNums (astEvaluate left) (astEvaluate right)
         | Assign(name, expr) ->
@@ -303,7 +331,13 @@ module interpreter =
             match rest with
             | EqEq :: tail ->
                 let (rest2, right) = E tail
-                (rest2, Eqiv(left, right))
+                (rest2, Eqiv(left, "==", right))
+            | GT :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, ">", right))
+            | LT :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, "<", right))
             | _ -> (rest, left)
         
         and E tList = 
@@ -327,13 +361,13 @@ module interpreter =
         and Topt (tList, left) =
             match tList with
             | Mul :: tail -> 
-                let (tList', right) = F tail
+                let (tList', right) = P tail
                 Topt (tList', Binary(left, "*", right))
             | Div :: tail -> 
-                let (tList', right) = F tail
+                let (tList', right) = P tail
                 Topt (tList', Binary(left, "/", right))
             | Mod :: tail -> 
-                let (tList', right) = F tail
+                let (tList', right) = P tail
                 Topt (tList', Binary(left, "%", right))
             | _ -> (tList, left)
         

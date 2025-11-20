@@ -52,10 +52,10 @@
                         <ColumnDefinition Width="8*"/>
                         <ColumnDefinition Width="2*"/>
                     </Grid.ColumnDefinitions>
-                    
-                    <TextBox Grid.Row="0" Grid.Column="0" MaxLength="48" Margin="5" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}">
+
+                    <TextBox Grid.Row="0" Grid.Column="0" MaxLength="200" Margin="5" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" AcceptsTab="True">
                         <TextBox.InputBindings>
-                            <KeyBinding Command="{Binding InputEnter}" Key="Enter"></KeyBinding>
+                            <KeyBinding Command="{Binding InputEnter}" Gesture="CTRL+ENTER"></KeyBinding>
                         </TextBox.InputBindings>
                     </TextBox>
                     
