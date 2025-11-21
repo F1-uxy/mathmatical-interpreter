@@ -6,10 +6,12 @@
 namespace MathInterpreter
 
 open System.Diagnostics
+open System.Text
 
 module interpreter = 
 
     open System
+    open System.IO
     open MathInterpreter.Exceptions
     open Newtonsoft.Json
     type NumericValue =
@@ -27,6 +29,25 @@ module interpreter =
         | Var of string
         | IfExpr of Expr * Expr * Expr option
         | Prog of Expr list
+        
+    type IR =
+        | IRConst of float
+        | IRVar of string
+        | IRBinary of IR * string * IR
+        | IRUnary of string * IR
+        | IRCall of string * IR list
+        | IRAssign of string * IR
+        | IRIf of IR * IR * IR option
+        | IRProg of IR list
+    
+    type TAC =
+        | TACAssign of string * string                   // x := y
+        | TACBinary of string * string * string * string // t := y op x
+        | TACUnary of string * string * string           // t := op x
+        | TACGoto of string
+        | TACCall of string * string list                // t := call func(args...)
+        | TACLabel of string
+        | TACIf of string * string                       // if x goto label
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
@@ -183,6 +204,13 @@ module interpreter =
                 | [x] -> FloatVal (Math.Sqrt(toFloat x))
                 | _ -> raise (FunctionArgsException("sqrt takes 1 argument")))
         ]
+    
+    let tacToString tac =
+        match tac with
+        | TACAssign (x, y) -> $"{x} = {y}"
+        | TACBinary (t, x, op, y) -> $"{t} = {x} {op} {y}"
+        | TACUnary (t, op, x) -> $"{t} = {op} {x}"
+        | _ -> ""
 
     let lexer input = 
         let rec scan input =
@@ -434,7 +462,66 @@ module interpreter =
         | _ ->
             let (rest, expr) = Program tList
             (rest, expr)
+    
+    let rec irLower ast =
+        match ast with
+        | Int (IntVal x)                        -> IRConst(float x)
+        | Int (FloatVal x)                      -> IRConst(x)
+        | Var name                              -> IRVar name
+        | Unary (op, x)                         -> IRUnary(op, irLower x)
+        | Assign (varName, x)                   -> IRAssign(varName, irLower x)
+        | Binary (x, op, y)                     -> IRBinary(irLower x, op, irLower y)
+        | Power (x, y)                          -> IRBinary(irLower x, "^", irLower y)
+        | Eqiv (x, op, y)                       -> IRBinary(irLower x, op, irLower y)
+        | FunCall (funcName, args)              -> IRCall(funcName, args |> List.map irLower)
+        | IfExpr(expr0, expr1, Some exprOption) -> IRIf(irLower expr0, irLower expr1, Some (irLower exprOption))
+        | Prog exprs                            -> IRProg(exprs |> List.map irLower)
+        | _                                     -> raise (ParseException("Unknown AST symbol while lowering"))
 
+    let mutable tempCounter = 0
+    let assignTemp() =
+        tempCounter <- tempCounter + 1
+        sprintf "t%A" tempCounter
+    
+    let declareTemps tac =
+        tac
+        |> List.choose (function
+            | TACAssign(t, _)
+            | TACBinary(t, _, _, _)
+            | TACUnary(t, _, _) -> Some t
+            | _ -> None
+            )
+        |> Set.ofList
+        |> Set.toList
+        |> String.concat ", "
+        |> fun s -> $"int {s};"
+    
+    let rec flattenIRtoTAC ir =
+        match ir with
+        | IRConst value ->
+            let t = assignTemp()
+            [TACAssign(t, string value)], t
+        | IRVar name ->
+            [], name
+        | IRAssign(varName, expr) ->
+            let (code, t) = flattenIRtoTAC expr
+            code @ [TACAssign(varName, t)], varName
+        | IRUnary(op, expr) ->
+            let (code, t) = flattenIRtoTAC expr
+            let temp = assignTemp()
+            code @ [TACUnary(temp, op, t)], temp
+        | IRBinary(x, op, y) ->
+            let (codeL, l) = flattenIRtoTAC x
+            let (codeR, r) = flattenIRtoTAC y
+            let temp = assignTemp()
+            codeL @ codeR @ [TACBinary(temp, l, op, r)], temp
+        | IRProg exprs ->
+            let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
+            let tac = codeList |> List.collect fst          // Take each code block and collect into one list
+            let lastVar = codeList |> List.map snd |> List.last // Get last variable assigned which is the final result
+            tac, lastVar
+        | _ -> raise (ParseException("Unknown IR token during flattening"))
+        
     let toJson(result: EvalResult) =
         match result with
         | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
@@ -467,15 +554,45 @@ module interpreter =
     | IntVal x -> string x
     | FloatVal f -> string f
 
+    let writeToFile (fileName : string, str : string) =
+        let path = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+        let result = System.IO.Directory.CreateDirectory(path)
+        let path = Path.Combine(path, fileName)
+        let file = File.Create(path)
+        
+        let bytes = System.Text.Encoding.UTF8.GetBytes(str)
+        do file.WriteAsync(ReadOnlyMemory bytes) |> ignore
+        
+        file.Close()
+        //File.Delete(path)
+    
+    let tacString tac =
+        let tempDecs = declareTemps tac
+        let body = tac
+                    |> List.map tacToString
+                    |> String.concat "\n"
+        $"int main(){{\n{tempDecs}\n\n{body}\nreturn 0}}"
+            
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (_, ast) = parse tokens
+        let ir = irLower ast
+        let (tac, last) = flattenIRtoTAC ir
+        printfn "AST: %A" ast
+        printfn "IR: %A" ir
+        printfn "TAC: %A" tac
+        printfn "Last: %A" last
+        //let tacString = System.String.Concat(tac)
+        let str = tacString tac
+        writeToFile ("tac.c", str)
         let result = astEvaluate ast
         result  
-
+    
+    
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
+        writeToFile("test.c", "My test string")
         let input:string = getInputString()
         let res = evaluate input
         printfn "Result: %A" res
