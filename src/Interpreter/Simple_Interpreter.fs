@@ -28,6 +28,7 @@ module interpreter =
         | FunCall of string * Expr list
         | Var of string
         | IfExpr of Expr * Expr * Expr option
+        | ForLoop of string * Expr * Expr * Expr list
         | Prog of Expr list
     
     type TAC =
@@ -72,7 +73,7 @@ module interpreter =
         match (a, b) with
         | (FloatVal 0.0, _) | (IntVal 0, _) -> 
             raise(DivisionByZeroException("Division by zero"))
-        | (IntVal x, IntVal y) when x % y = 0 -> IntVal (x / y)
+        | (IntVal x, IntVal y) -> IntVal (x / y)
         | _ -> 
             let result = toFloat a / toFloat b
             if result = floor result then
@@ -327,6 +328,23 @@ module interpreter =
                 match exprOption with
                 | Some expr -> astEvaluate expr
                 | None -> IntVal 0
+        | ForLoop(varName, startExpr, endExpr, bodyStatements) ->
+            let startVal = astEvaluate startExpr
+            let endVal = astEvaluate endExpr
+            let start = int(toFloat startVal)
+            let endNum = int(toFloat endVal)
+            
+            let rec loop i lastResult =
+                if i > endNum then
+                    lastResult
+                else
+                    symbTable <- symbTable.Add(varName, IntVal i)
+                    let newResult =
+                        bodyStatements
+                        |> List.fold (fun _ stmt -> astEvaluate stmt) (IntVal 0)
+                    loop (i+1) newResult
+            loop start (IntVal 0)
+            
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
 
     let rec parse tList =
@@ -413,18 +431,35 @@ module interpreter =
                 let (restCond, condExpr) = Comp tail
                 match restCond with
                 | Rpar :: Id "then" :: thenTail ->
-                    let (restThen, thenExpr) = Comp thenTail
+                    let (restThen, thenExpr) = S thenTail
                     match restThen with
                     | Id "else" :: tailElse ->
-                        let (restElse, elseExpr) = Comp tailElse
+                        let (restElse, elseExpr) = S tailElse
                         restElse, IfExpr(condExpr, thenExpr, Some elseExpr)
                     | _ -> restThen, IfExpr(condExpr, thenExpr, None)
                 | _ -> raise(ParseException("Unknown conditional form"))
+                
+            | Id "for"  :: Lpar :: Id varName :: Eq :: tail ->
+                let (rest1, startExpr) = Comp tail
+                match rest1 with
+                | Id "to" :: tail2 ->
+                    let (rest2, endExpr) = Comp tail2
+                    match rest2 with
+                    | Rpar :: Id "do" :: tail3 ->
+                        let (rest3, bodyStatements) = parseForBody tail3 []
+                        match rest3 with
+                        | Id "end" :: rest4 ->
+                            (rest4, ForLoop(varName, startExpr, endExpr, bodyStatements))
+                        | _ -> raise (ParseException"Expected 'end'")
+                    | _ -> raise (ParseException "Expected ') do'")
+                | _ -> raise (ParseException "Expected 'to'")
+
             | Id name :: Lpar :: tail ->
                 let (rest, args) = Args tail
                 match rest with
                 | Rpar :: rest' -> (rest', FunCall(name, args))
                 | _ -> raise (ParseException "Expected ')' after function call")
+                
             | _ -> NR tList
 
         and NR tList =
@@ -453,7 +488,13 @@ module interpreter =
                 let (tList', next) = E tail
                 ArgList (tList', next :: acc)
             | _ -> (tList, List.rev acc)
-            
+        and parseForBody tokens acc =
+            match tokens with
+            | Id "end" :: _ -> (tokens, List.rev acc)
+            | Semi :: tail -> parseForBody tail acc
+            | _ ->
+                let (rest, stmt) = S tokens
+                parseForBody rest (stmt :: acc)
         match tList with
         | [] -> raise (ParseException "Empty input")
         | _ ->
