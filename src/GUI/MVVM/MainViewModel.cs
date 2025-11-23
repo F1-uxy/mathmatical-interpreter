@@ -34,6 +34,7 @@ namespace GUI
         private string _statusMessage = string.Empty;
         private string _currentExpression = string.Empty;
         private string _inputExpression = string.Empty;
+        private string _compilerOutput = string.Empty;
         private float _xMinInput = 0;
         private float _xMaxInput = 0;
         private float _stepInput = 0;
@@ -49,6 +50,7 @@ namespace GUI
 
         public RelayCommand PlotEnter => new RelayCommand(_ => RedrawExpression());
 
+        public RelayCommand CompileEnter => new RelayCommand(_ => CompileExpression());
         public PlotModel MyModel { get; private set; }
 
         public ObservableCollection<SymbolTableEntry> SymbolTable { get; } = new ObservableCollection<SymbolTableEntry>();
@@ -86,6 +88,20 @@ namespace GUI
                     return;
                 }
                 _statusMessage = value;
+                OnPropertyChanged();
+            }
+        }
+        
+        public string CompilerOutput
+        {
+            get => _compilerOutput;
+            set
+            {
+                if(_compilerOutput == value)
+                {
+                    return;
+                }
+                _compilerOutput = value;
                 OnPropertyChanged();
             }
         }
@@ -324,6 +340,37 @@ namespace GUI
                 AppendExceptionToConsole(e);
             }
             
+        }
+
+        public void CompileExpression()
+        {
+            string expression = _inputExpression.ToString();
+            if (expression == string.Empty) return;
+            
+            try
+            {
+                var code = MathInterpreter.interpreter.compile(expression);
+                
+                CompilerOutput = code.ToString();
+                InputExpression = string.Empty;
+                UpdateSymbolTable();
+            }
+            catch (MathInterpreter.Exceptions.LexerException e)
+            {
+                AppendExceptionToConsole(e);
+            }
+            catch (MathInterpreter.Exceptions.ParseException e)
+            {
+                AppendExceptionToConsole(e);
+            }
+            catch (MathInterpreter.Exceptions.DivisionByZeroException e)
+            {
+                AppendExceptionToConsole(e);
+            }
+            catch (MathInterpreter.Exceptions.FunctionArgsException e)
+            {
+                AppendExceptionToConsole(e);
+            }
         }
 
         public void UpdateSymbolTable()

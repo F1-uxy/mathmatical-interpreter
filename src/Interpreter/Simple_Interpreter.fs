@@ -466,6 +466,7 @@ module interpreter =
         sprintf "t%A" tempCounter
     
     let declareTemps tac =
+        tempCounter <- 0;
         tac
         |> List.choose (function
             | TACAssign(t, _)
@@ -571,7 +572,7 @@ module interpreter =
         let body = tac
                     |> List.map tacToString
                     |> String.concat "\n"
-        $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;}}"
+        $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
             
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
@@ -585,7 +586,13 @@ module interpreter =
         let result = astEvaluate ast
         result  
     
-    
+    let compile(expr: string) : string =
+        let tokens = lexer expr
+        let (_, ast) = parse tokens
+        let (tac, last) = flattenIRtoTAC ast
+        let str = tacString tac
+        str
+        
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
