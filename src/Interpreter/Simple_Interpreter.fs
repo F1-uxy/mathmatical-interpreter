@@ -35,7 +35,7 @@ module interpreter =
         | TACBinary of string * string * string * string // t := y op x
         | TACUnary of string * string * string           // t := op x
         | TACGoto of string
-        | TACCall of string * string list                // t := call func(args...)
+        | TACCall of string * string * string list                // t := call func(args...)
         | TACLabel of string
         | TACIf of string * string                       // if x goto label
         
@@ -195,11 +195,18 @@ module interpreter =
                 | _ -> raise (FunctionArgsException("sqrt takes 1 argument")))
         ]
     
+    let argsToString args =
+        let argList = args
+                    |> String.concat ","
+        argList
+    
     let tacToString tac =
         match tac with
         | TACAssign (x, y) -> $"{x} = {y};"
         | TACBinary (t, x, op, y) -> $"{t} = {x} {op} {y};"
         | TACUnary (t, op, x) -> $"{t} = {op} {x};"
+        | TACCall (t, funcName, args) -> $"{t} = {funcName}({(argsToString args)});" // We need to differentiate void functions
+                                                                            // and assign return value if not void or we assume there are no void functions?
         | _ -> ""
 
     let lexer input = 
@@ -464,6 +471,7 @@ module interpreter =
             | TACAssign(t, _)
             | TACBinary(t, _, _, _)
             | TACUnary(t, _, _) -> Some t
+            | TACCall(t, _, _) -> Some t
             | _ -> None
             )
         |> Set.ofList
@@ -493,6 +501,20 @@ module interpreter =
             let (codeR, r) = flattenIRtoTAC y
             let temp = assignTemp()
             codeL @ codeR @ [TACBinary(temp, l, op, r)], temp
+        | Power(x, y) ->
+            let (codeL, l) = flattenIRtoTAC x
+            let (codeR, r) = flattenIRtoTAC y
+            let args = [string l; string r]
+            let temp = assignTemp()
+            codeL @ codeR @ [TACCall(temp, "pow", args)], temp
+        | FunCall(funcName, args) ->
+            let argTupleList = args |> List.map flattenIRtoTAC
+            let argList = argTupleList |> List.collect fst
+            let tempList = argTupleList |> List.map snd
+            let lastTemp = tempList |> List.last
+            let temp = assignTemp()
+            argList @ [TACCall(temp, funcName, tempList)], lastTemp
+            
         | Prog exprs ->
             let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
@@ -549,7 +571,7 @@ module interpreter =
         let body = tac
                     |> List.map tacToString
                     |> String.concat "\n"
-        $"int main(){{\n{tempDecs}\n\n{body}\nreturn 0;}}"
+        $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;}}"
             
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
