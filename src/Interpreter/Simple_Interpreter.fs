@@ -29,6 +29,7 @@ module interpreter =
         | Var of string
         | IfExpr of Expr * Expr * Expr option
         | ForLoop of string * Expr * Expr * Expr list
+        | WhileLoop of Expr * Expr list
         | Prog of Expr list
     
     type TAC =
@@ -344,7 +345,22 @@ module interpreter =
                         |> List.fold (fun _ stmt -> astEvaluate stmt) (IntVal 0)
                     loop (i+1) newResult
             loop start (IntVal 0)
-            
+        | WhileLoop(condExpr, bodyStatements) ->
+            let rec loop lastResult =
+                let condValue = astEvaluate condExpr
+                let isTrue =
+                    match condValue with
+                    | IntVal n -> n <> 0
+                    | FloatVal f -> f <> 0.0
+                if isTrue then
+                    let newResult =
+                        bodyStatements
+                        |> List.fold ( fun _ stmt -> astEvaluate stmt) (IntVal 0)
+                    loop newResult
+                else
+                    lastResult
+            loop (IntVal 0)
+
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
 
     let rec parse tList =
@@ -453,6 +469,16 @@ module interpreter =
                         | _ -> raise (ParseException"Expected 'end'")
                     | _ -> raise (ParseException "Expected ') do'")
                 | _ -> raise (ParseException "Expected 'to'")
+            | Id "while" :: Lpar :: tail ->
+                let (restCond, condExpr) = Comp tail
+                match restCond with
+                | Rpar :: Id "do" :: tail2 ->
+                    let(rest2, bodyStatements) = parseForBody tail2 []
+                    match rest2 with
+                    | Id "end" :: rest3 ->
+                        (rest3, WhileLoop(condExpr, bodyStatements))
+                    | _ -> raise (ParseException "Expected 'end' after while body")
+                | _ -> raise (ParseException "Expected ') do' in while loop")
 
             | Id name :: Lpar :: tail ->
                 let (rest, args) = Args tail
