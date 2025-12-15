@@ -37,7 +37,7 @@ module interpreter =
         | TACBinary of string * string * string * string // t := y op x
         | TACUnary of string * string * string           // t := op x
         | TACGoto of string
-        | TACCall of string * string * string list                // t := call func(args...)
+        | TACCall of string * string * string list       // t := call func(args...)
         | TACLabel of string
         | TACIf of string * string                       // if x goto label
         
@@ -209,6 +209,9 @@ module interpreter =
         | TACUnary (t, op, x) -> $"{t} = {op} {x};"
         | TACCall (t, funcName, args) -> $"{t} = {funcName}({(argsToString args)});" // We need to differentiate void functions
                                                                             // and assign return value if not void or we assume there are no void functions?
+        | TACIf (cond, label) -> $"if ({cond}) goto {label};"
+        | TACGoto label -> $"goto {label};"
+        | TACLabel label -> $"{label}:"
         | _ -> ""
 
     let lexer input = 
@@ -528,9 +531,14 @@ module interpreter =
             (rest, expr)
 
     let mutable tempCounter = 0
+    let mutable labelCounter = 0
     let assignTemp() =
         tempCounter <- tempCounter + 1
-        sprintf "t%A" tempCounter
+        $"t{tempCounter}"
+    
+    let newLabel(prefix: string) =
+        labelCounter <- labelCounter + 1
+        $"{prefix}_{labelCounter}"
     
     let declareTemps tac =
         tempCounter <- 0;
@@ -582,13 +590,45 @@ module interpreter =
             let lastTemp = tempList |> List.last
             let temp = assignTemp()
             argList @ [TACCall(temp, funcName, tempList)], lastTemp
+        | IfExpr(condExpr, thenExpr, elseExpr) ->
+            let (condCode, condTemp) = flattenIRtoTAC condExpr
+
+            let thenLabel = newLabel "then"
+            let elseLabel = newLabel "else"
+            let endLabel  = newLabel "endif"
+
+            let (thenCode, thenTemp) = flattenIRtoTAC thenExpr
+
+            let elseCode, elseTemp =
+                match elseExpr with
+                | Some e -> flattenIRtoTAC e
+                | None -> ([], "0")
+
+            let resultTemp = assignTemp()
+
+            let code =
+                condCode @
+                [ TACIf(condTemp, thenLabel)
+                  TACGoto elseLabel
+                  TACLabel thenLabel ] @
+                thenCode @
+                [ TACAssign(resultTemp, thenTemp)
+                  TACGoto endLabel
+                  TACLabel elseLabel ] @
+                elseCode @
+                [ TACAssign(resultTemp, elseTemp)
+                  TACLabel endLabel ]
+
+            code, resultTemp
             
         | Prog exprs ->
             let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
             let lastVar = codeList |> List.map snd |> List.last // Get last variable assigned which is the final result
             tac, lastVar
-        | _ -> raise (ParseException("Unknown IR token during flattening"))
+        | _ ->
+            printf "%A\n" ir
+            raise (ParseException("Unknown IR token during flattening"))
         
     let toJson(result: EvalResult) =
         match result with
@@ -644,18 +684,15 @@ module interpreter =
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (_, ast) = parse tokens
-        let (tac, last) = flattenIRtoTAC ast
         printfn "AST: %A" ast
-        printfn "TAC: %A" tac
-        printfn "Last: %A" last
-        let str = tacString tac
-        writeToFile ("tac.c", str)
         let result = astEvaluate ast
         result  
     
     let compile(expr: string) : string =
         let tokens = lexer expr
+        printfn "Tokens: %A" tokens
         let (_, ast) = parse tokens
+        printfn "AST: %A" ast
         let (tac, last) = flattenIRtoTAC ast
         let str = tacString tac
         str
@@ -663,8 +700,11 @@ module interpreter =
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
-        writeToFile("test.c", "My test string")
-        let input:string = getInputString()
+        //writeToFile("test.c", "My test string")
+        //let input:string = getInputString()
+        let input:string = "if((2+2) > 1)then(2*2);"
+        let res = compile(input)
+        writeToFile("test.c", res)
         let res = evaluate input
         printfn "Result: %A" res
         printfn "Symbol Table: %A" symbTable
