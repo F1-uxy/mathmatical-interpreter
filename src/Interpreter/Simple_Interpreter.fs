@@ -40,6 +40,7 @@ module interpreter =
         | TACCall of string * string * string list       // t := call func(args...)
         | TACLabel of string
         | TACIf of string * string                       // if x goto label
+        | TACEquiv of string * string * string * string  // t := x op y
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
@@ -209,6 +210,7 @@ module interpreter =
         | TACUnary (t, op, x) -> $"{t} = {op} {x};"
         | TACCall (t, funcName, args) -> $"{t} = {funcName}({(argsToString args)});" // We need to differentiate void functions
                                                                             // and assign return value if not void or we assume there are no void functions?
+        | TACEquiv (t, x, op, y) -> $"{t} = {x} {op} {y};"
         | TACIf (cond, label) -> $"if ({cond}) goto {label};"
         | TACGoto label -> $"goto {label};"
         | TACLabel label -> $"{label}:"
@@ -546,6 +548,7 @@ module interpreter =
         |> List.choose (function
             | TACAssign(t, _)
             | TACBinary(t, _, _, _)
+            | TACEquiv(t, _, _, _)
             | TACUnary(t, _, _) -> Some t
             | TACCall(t, _, _) -> Some t
             | _ -> None
@@ -583,6 +586,11 @@ module interpreter =
             let args = [string l; string r]
             let temp = assignTemp()
             codeL @ codeR @ [TACCall(temp, "pow", args)], temp
+        | Eqiv(x, op, y) ->
+            let (codeL, l) = flattenIRtoTAC x
+            let (codeR, r) = flattenIRtoTAC y
+            let temp = assignTemp()
+            codeL @ codeR @ [TACEquiv(temp, l, op, r)], temp
         | FunCall(funcName, args) ->
             let argTupleList = args |> List.map flattenIRtoTAC
             let argList = argTupleList |> List.collect fst
@@ -592,20 +600,15 @@ module interpreter =
             argList @ [TACCall(temp, funcName, tempList)], lastTemp
         | IfExpr(condExpr, thenExpr, elseExpr) ->
             let (condCode, condTemp) = flattenIRtoTAC condExpr
-
             let thenLabel = newLabel "then"
             let elseLabel = newLabel "else"
             let endLabel  = newLabel "endif"
-
             let (thenCode, thenTemp) = flattenIRtoTAC thenExpr
-
             let elseCode, elseTemp =
                 match elseExpr with
                 | Some e -> flattenIRtoTAC e
                 | None -> ([], "0")
-
             let resultTemp = assignTemp()
-
             let code =
                 condCode @
                 [ TACIf(condTemp, thenLabel)
@@ -620,7 +623,6 @@ module interpreter =
                   TACLabel endLabel ]
 
             code, resultTemp
-            
         | Prog exprs ->
             let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
@@ -702,7 +704,7 @@ module interpreter =
         Console.WriteLine("Simple Interpreter")
         //writeToFile("test.c", "My test string")
         //let input:string = getInputString()
-        let input:string = "if((2+2) > 1)then(2*2);"
+        let input:string = "x = 5; x = 6; if(x < 1)then(2*2);"
         let res = compile(input)
         writeToFile("test.c", res)
         let res = evaluate input
