@@ -62,8 +62,22 @@ namespace GUI
             this.MyModel = new PlotModel { Title = "sin(x)" };
             this.MyModel.Series.Add(new FunctionSeries(sinFunc, 0, 10, 0.1, "sin(x)"));
             
-            LinearAxis xAxis = new LinearAxis { Position = AxisPosition.Bottom };
-            LinearAxis yAxis = new LinearAxis { Position = AxisPosition.Left };
+            LinearAxis xAxis = new LinearAxis
+            {
+                Position = AxisPosition.Bottom,
+                MajorGridlineStyle = LineStyle.Solid,
+                MinorGridlineStyle = LineStyle.Dot,
+                MajorGridlineColor = OxyColors.Gray,
+                MinorGridlineColor = OxyColors.LightGray,
+            };
+            LinearAxis yAxis = new LinearAxis
+            {
+                Position = AxisPosition.Left,
+                MajorGridlineStyle = LineStyle.Solid,
+                MinorGridlineStyle = LineStyle.Dot,
+                MajorGridlineColor = OxyColors.Gray,
+                MinorGridlineColor = OxyColors.LightGray,
+            };
             
             MyModel.Axes.Add(xAxis);
             MyModel.Axes.Add(yAxis);

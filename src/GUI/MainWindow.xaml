@@ -154,7 +154,7 @@
                             </StackPanel>
                         </Grid>
                         
-                        <oxy:PlotView Grid.Row="1" Model="{Binding MyModel }" Margin="5"/>
+                        <oxy:PlotView Grid.Row="1" Model="{Binding MyModel }" Margin="5" />
                     </Grid>
                     
                 </Grid>
