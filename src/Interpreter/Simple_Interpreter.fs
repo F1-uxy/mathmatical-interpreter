@@ -5,6 +5,7 @@
 
 namespace MathInterpreter
 
+open System.Collections.Generic
 open System.Diagnostics
 open System.Text
 
@@ -32,20 +33,30 @@ module interpreter =
         | WhileLoop of Expr * Expr list
         | Prog of Expr list
     
+    type Operand =
+        | OpImmInt of int
+        | OpImmFloat of float
+        | OpVar of string
+        | OpTemp of int
+        
     type TAC =
-        | TACAssign of string * string                   // x := y
-        | TACBinary of string * string * string * string // t := y op x
-        | TACUnary of string * string * string           // t := op x
+        | TACAssign of Operand * Operand                     // x := y
+        | TACBinary of Operand * Operand * string * Operand  // t := y op x
+        | TACUnary of Operand * string * Operand             // t := op x
         | TACGoto of string
-        | TACCall of string * string * string list       // t := call func(args...)
+        | TACCall of Operand * string * Operand list          // t := call func(args...)
         | TACLabel of string
-        | TACIf of string * string                       // if x goto label
-        | TACEquiv of string * string * string * string  // t := x op y
+        | TACIf of Operand * string                          // if x goto label
+        | TACEquiv of Operand * Operand * string * Operand     // t := x op y
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
+    
+    let tempRegs = [ "$t0"; "$t1"; "$t2"; "$t3"; "$t4"; "$t5"; "$t6"; "$t7"; "$t8"; "$t9"]
+    let mutable freeRegs = tempRegs
+    let tempMap = Dictionary<int, string>()
     
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
@@ -203,19 +214,17 @@ module interpreter =
                     |> String.concat ","
         argList
     
-    let tacToString tac =
-        match tac with
-        | TACAssign (x, y) -> $"{x} = {y};"
-        | TACBinary (t, x, op, y) -> $"{t} = {x} {op} {y};"
-        | TACUnary (t, op, x) -> $"{t} = {op} {x};"
-        | TACCall (t, funcName, args) -> $"{t} = {funcName}({(argsToString args)});" // We need to differentiate void functions
-                                                                            // and assign return value if not void or we assume there are no void functions?
-        | TACEquiv (t, x, op, y) -> $"{t} = {x} {op} {y};"
-        | TACIf (cond, label) -> $"if ({cond}) goto {label};"
-        | TACGoto label -> $"goto {label};"
-        | TACLabel label -> $"{label}:"
-        | _ -> ""
+    
 
+    let tacToMips tac =
+        match tac with
+        | TACBinary (t, x, op, y) ->
+            match x, y with
+            | OpVar x, OpImmInt y -> $"addi ${t}, ${x}, {y},"
+            | OpVar x, OpVar y -> $"add ${t}, ${x}, ${y}"
+            | _ -> raise(ParseException("Unknown add format"))
+        | _ -> ""
+        
     let lexer input = 
         let rec scan input =
             match input with
@@ -536,68 +545,90 @@ module interpreter =
     let mutable labelCounter = 0
     let assignTemp() =
         tempCounter <- tempCounter + 1
-        $"t{tempCounter}"
+        tempCounter
     
     let newLabel(prefix: string) =
         labelCounter <- labelCounter + 1
         $"{prefix}_{labelCounter}"
     
+    let operandToCDecl = function
+    | OpTemp t -> $"t{t}"
+    | _ -> failwith "Expected Temp in declareTemps"
+    
+    let allocTempReg t =
+        if tempMap.ContainsKey(t) then tempMap.[t]
+        else
+            match freeRegs with
+            | r :: rest ->
+                freeRegs <- rest
+                tempMap.[t] <- r
+                r
+            | [] -> raise(ParseException("Could not allocate register; Out of space"))
+    
     let declareTemps tac =
-        tempCounter <- 0;
+        tempCounter <- 0
         tac
         |> List.choose (function
-            | TACAssign(t, _)
-            | TACBinary(t, _, _, _)
-            | TACEquiv(t, _, _, _)
-            | TACUnary(t, _, _) -> Some t
-            | TACCall(t, _, _) -> Some t
+            | TACAssign(OpTemp t, _)
+            | TACBinary(OpTemp t, _, _, _)
+            | TACEquiv(OpTemp t, _, _, _)
+            | TACUnary(OpTemp t, _, _)
+            | TACCall(OpTemp t, _, _) -> Some (OpTemp t)
             | _ -> None
-            )
+        )
         |> Set.ofList
         |> Set.toList
+        |> List.map operandToCDecl
         |> String.concat ", "
-        |> fun s -> $"int {s};"
-    
+
+        
     let rec flattenIRtoTAC ir =
         match ir with
         | Int (IntVal value) ->
             let t = assignTemp()
-            [TACAssign(t, string value)], t
+            [TACAssign(OpTemp t, OpImmInt value)], OpTemp t
         | Int (FloatVal value) ->
             let t = assignTemp()
-            [TACAssign(t, string value)], t
+            [TACAssign(OpTemp t, OpImmFloat value)], OpTemp t
         | Var name ->
-            [], name
+            [], OpVar name
         | Assign(varName, expr) ->
-            let (code, t) = flattenIRtoTAC expr
-            code @ [TACAssign(varName, t)], varName
+            match expr with
+            | Int (IntVal i) -> 
+                let op = OpImmInt i
+                [TACAssign(OpVar varName, op)], OpVar varName
+            | Int (FloatVal f) ->
+                let op = OpImmFloat f
+                [TACAssign(OpVar varName, op)], OpVar varName
+            | _ ->
+                let (code, t) = flattenIRtoTAC expr
+                code @ [TACAssign(OpVar varName, t)], OpVar varName
         | Unary(op, expr) ->
             let (code, t) = flattenIRtoTAC expr
             let temp = assignTemp()
-            code @ [TACUnary(temp, op, t)], temp
+            code @ [TACUnary(OpTemp temp, op, t)], OpTemp temp
         | Binary(x, op, y) ->
             let (codeL, l) = flattenIRtoTAC x
             let (codeR, r) = flattenIRtoTAC y
             let temp = assignTemp()
-            codeL @ codeR @ [TACBinary(temp, l, op, r)], temp
+            codeL @ codeR @ [TACBinary(OpTemp temp, l, op, r)], OpTemp temp
         | Power(x, y) ->
             let (codeL, l) = flattenIRtoTAC x
             let (codeR, r) = flattenIRtoTAC y
-            let args = [string l; string r]
             let temp = assignTemp()
-            codeL @ codeR @ [TACCall(temp, "pow", args)], temp
+            codeL @ codeR @ [TACBinary(OpTemp temp, l ,"^", r)], OpTemp temp
         | Eqiv(x, op, y) ->
             let (codeL, l) = flattenIRtoTAC x
             let (codeR, r) = flattenIRtoTAC y
             let temp = assignTemp()
-            codeL @ codeR @ [TACEquiv(temp, l, op, r)], temp
+            codeL @ codeR @ [TACEquiv(OpTemp temp, l, op, r)], OpTemp temp
         | FunCall(funcName, args) ->
             let argTupleList = args |> List.map flattenIRtoTAC
             let argList = argTupleList |> List.collect fst
             let tempList = argTupleList |> List.map snd
             let lastTemp = tempList |> List.last
             let temp = assignTemp()
-            argList @ [TACCall(temp, funcName, tempList)], lastTemp
+            argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
         | IfExpr(condExpr, thenExpr, elseExpr) ->
             let (condCode, condTemp) = flattenIRtoTAC condExpr
             let thenLabel = newLabel "then"
@@ -607,7 +638,7 @@ module interpreter =
             let elseCode, elseTemp =
                 match elseExpr with
                 | Some e -> flattenIRtoTAC e
-                | None -> ([], "0")
+                | None -> ([], OpImmInt 0)
             let resultTemp = assignTemp()
             let code =
                 condCode @
@@ -615,14 +646,14 @@ module interpreter =
                   TACGoto elseLabel
                   TACLabel thenLabel ] @
                 thenCode @
-                [ TACAssign(resultTemp, thenTemp)
+                [ TACAssign(OpTemp resultTemp, thenTemp)
                   TACGoto endLabel
                   TACLabel elseLabel ] @
                 elseCode @
-                [ TACAssign(resultTemp, elseTemp)
+                [ TACAssign(OpTemp resultTemp, elseTemp)
                   TACLabel endLabel ]
 
-            code, resultTemp
+            code, OpTemp resultTemp
         | Prog exprs ->
             let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
@@ -679,7 +710,7 @@ module interpreter =
     let tacString tac =
         let tempDecs = declareTemps tac
         let body = tac
-                    |> List.map tacToString
+                    |> List.map tacToMips
                     |> String.concat "\n"
         $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
             
@@ -696,6 +727,7 @@ module interpreter =
         let (_, ast) = parse tokens
         printfn "AST: %A" ast
         let (tac, last) = flattenIRtoTAC ast
+        printfn "TAC: %A" tac
         let str = tacString tac
         str
         
@@ -704,7 +736,7 @@ module interpreter =
         Console.WriteLine("Simple Interpreter")
         //writeToFile("test.c", "My test string")
         //let input:string = getInputString()
-        let input:string = "x = 5; x = 6; if(x < 1)then(2*2);"
+        let input:string = "x = 5; x+2;"
         let res = compile(input)
         writeToFile("test.c", res)
         let res = evaluate input
