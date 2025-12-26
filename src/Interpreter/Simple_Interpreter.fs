@@ -214,15 +214,29 @@ module interpreter =
                     |> String.concat ","
         argList
     
-    
 
     let tacToMips tac =
         match tac with
         | TACBinary (t, x, op, y) ->
-            match x, y with
-            | OpVar x, OpImmInt y -> $"addi ${t}, ${x}, {y},"
-            | OpVar x, OpVar y -> $"add ${t}, ${x}, ${y}"
+            match t, x, y with
+            | OpTemp t, OpVar x, OpImmInt y -> $"addi {t}, {x}, {y},"
+            | OpTemp t, OpTemp x, OpImmInt y -> $"addi {t}, {x}, {y},"
+            | OpTemp t, OpVar x, OpVar y -> $"add {t}, {x}, {y}"
+            | OpTemp t, OpTemp x, OpTemp y -> $"add {t}, {x}, {y}"
             | _ -> raise(ParseException("Unknown add format"))
+        | TACAssign (x, y) ->
+            match x, y with
+            | OpVar x, OpVar y ->
+                                    let t = 0
+                                    let xOffset = 0
+                                    let yOffset = 0
+                                    $"lw {t}, {yOffset}($sp) \nsw ${t}, {xOffset}($sp)"
+            | OpVar x, OpTemp y ->
+                                    let offset = 0
+                                    $"sw {y}, {offset}($sp)"
+            | OpTemp x, OpImmInt y ->
+                                    let t = 0
+                                    $"li t{t}, {y}"
         | _ -> ""
         
     let lexer input = 
@@ -708,11 +722,11 @@ module interpreter =
         //File.Delete(path)
     
     let tacString tac =
-        let tempDecs = declareTemps tac
+        //let tempDecs = declareTemps tac
         let body = tac
                     |> List.map tacToMips
                     |> String.concat "\n"
-        $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
+        body
             
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
@@ -736,9 +750,9 @@ module interpreter =
         Console.WriteLine("Simple Interpreter")
         //writeToFile("test.c", "My test string")
         //let input:string = getInputString()
-        let input:string = "x = 5; x+2;"
+        let input:string = "2+2;"
         let res = compile(input)
-        writeToFile("test.c", res)
+        writeToFile("test.s", res)
         let res = evaluate input
         printfn "Result: %A" res
         printfn "Symbol Table: %A" symbTable
