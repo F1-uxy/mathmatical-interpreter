@@ -215,28 +215,28 @@ module interpreter =
         argList
     
 
-    let tacToMips tac =
+    let tacToRisc tac =
         match tac with
         | TACBinary (t, x, op, y) ->
             match t, x, y with
-            | OpTemp t, OpVar x, OpImmInt y -> $"addi {t}, {x}, {y},"
-            | OpTemp t, OpTemp x, OpImmInt y -> $"addi {t}, {x}, {y},"
-            | OpTemp t, OpVar x, OpVar y -> $"add {t}, {x}, {y}"
-            | OpTemp t, OpTemp x, OpTemp y -> $"add {t}, {x}, {y}"
-            | _ -> raise(ParseException("Unknown add format"))
+            | OpTemp t, OpVar x, OpImmInt y -> $"addi t{t}, t{x}, {y},"
+            | OpTemp t, OpTemp x, OpImmInt y -> $"addi t{t}, t{x}, {y},"
+            | OpTemp t, OpVar x, OpVar y -> $"add t{t}, t{x}, t{y}"
+            | OpTemp t, OpTemp x, OpTemp y -> $"add t{t}, t{x}, t{y}"
+            | _ -> raise(GenerationException("Unknown add format"))
         | TACAssign (x, y) ->
             match x, y with
             | OpVar x, OpVar y ->
                                     let t = 0
                                     let xOffset = 0
                                     let yOffset = 0
-                                    $"lw {t}, {yOffset}($sp) \nsw ${t}, {xOffset}($sp)"
+                                    $"lw t{t}, {yOffset}($sp) \nsw t{t}, {xOffset}($sp)"
             | OpVar x, OpTemp y ->
                                     let offset = 0
-                                    $"sw {y}, {offset}($sp)"
+                                    $"sw t{y}, {offset}($sp)"
             | OpTemp x, OpImmInt y ->
-                                    let t = 0
-                                    $"li t{t}, {y}"
+                                    $"li t{x}, {y}"
+            | _ -> raise(GenerationException("Unknown assign format"))
         | _ -> ""
         
     let lexer input = 
@@ -568,17 +568,7 @@ module interpreter =
     let operandToCDecl = function
     | OpTemp t -> $"t{t}"
     | _ -> failwith "Expected Temp in declareTemps"
-    
-    let allocTempReg t =
-        if tempMap.ContainsKey(t) then tempMap.[t]
-        else
-            match freeRegs with
-            | r :: rest ->
-                freeRegs <- rest
-                tempMap.[t] <- r
-                r
-            | [] -> raise(ParseException("Could not allocate register; Out of space"))
-    
+          
     let declareTemps tac =
         tempCounter <- 0
         tac
@@ -724,7 +714,7 @@ module interpreter =
     let tacString tac =
         //let tempDecs = declareTemps tac
         let body = tac
-                    |> List.map tacToMips
+                    |> List.map tacToRisc
                     |> String.concat "\n"
         body
             
@@ -750,7 +740,7 @@ module interpreter =
         Console.WriteLine("Simple Interpreter")
         //writeToFile("test.c", "My test string")
         //let input:string = getInputString()
-        let input:string = "2+2;"
+        let input:string = "1+2; 3+4;"
         let res = compile(input)
         writeToFile("test.s", res)
         let res = evaluate input
