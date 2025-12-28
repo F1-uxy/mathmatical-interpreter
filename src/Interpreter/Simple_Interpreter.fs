@@ -17,7 +17,7 @@ module interpreter =
         | FloatVal of float
         | ComplexVal of float * float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
@@ -285,6 +285,8 @@ module interpreter =
             | '^'::tail -> Pow :: scan tail
             | '('::tail -> Lpar:: scan tail
             | ')'::tail -> Rpar:: scan tail
+            | '{'::tail -> Lcurl:: scan tail
+            | '}'::tail -> Rcurl:: scan tail
             | ','::tail -> Comma:: scan tail
             | '='::'='::tail -> EqEq :: scan tail
             | '='::tail -> Eq :: scan tail
@@ -424,7 +426,7 @@ module interpreter =
             loop (IntVal 0)
 
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
-
+        
     let rec parse tList =
         let rec Program tList =
             let rec collect stmts tokens =
@@ -504,18 +506,29 @@ module interpreter =
             | _ -> (tList, left)
         
         and F tList =
+            let rec parseBlock tokens = // We need this helper function so that the parser can extract the code block
+                let rec loop acc t =
+                    match t with
+                    | Rcurl :: rest -> rest, Prog(List.rev acc)
+                    | Semi :: rest -> loop acc rest
+                    | [] -> raise (ParseException "Expected ')' to close block")
+                    | _ ->
+                        let (rest, stmt) = S t
+                        loop (stmt :: acc) rest
+                loop [] tokens
+            
             match tList with
             | Id "if" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
-                | Rpar :: Id "then" :: thenTail ->
-                    let (restThen, thenExpr) = S thenTail
+                | Rpar :: Id "then" :: Lcurl :: thenTail ->
+                    let (restThen, thenExpr) = parseBlock thenTail
                     match restThen with
-                    | Id "else" :: tailElse ->
-                        let (restElse, elseExpr) = S tailElse
+                    | Id "else" :: Lcurl :: elseTail ->
+                        let (restElse, elseExpr) = parseBlock elseTail
                         restElse, IfExpr(condExpr, thenExpr, Some elseExpr)
                     | _ -> restThen, IfExpr(condExpr, thenExpr, None)
-                | _ -> raise(ParseException("Unknown conditional form"))
+                | _ -> raise(ParseException "Unknown conditional form")
                 
             | Id "for"  :: Lpar :: Id varName :: Eq :: tail ->
                 let (rest1, startExpr) = Comp tail
@@ -531,6 +544,7 @@ module interpreter =
                         | _ -> raise (ParseException"Expected 'end'")
                     | _ -> raise (ParseException "Expected ') do'")
                 | _ -> raise (ParseException "Expected 'to'")
+                
             | Id "while" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
@@ -562,7 +576,9 @@ module interpreter =
                 | _ -> raise (ParseException "Expected ')'")
             | Num n :: tail -> (tail, Int(n))
             | Id name :: tail -> (tail, Var(name))
-            | _ -> raise (ParseException "Unexpected token in factor")
+            | _ ->
+                printf $"NR: {tList}"
+                raise (ParseException "Unexpected token in factor")
         
         and Args tList =
             match tList with
@@ -588,7 +604,7 @@ module interpreter =
         | _ ->
             let (rest, expr) = Program tList
             (rest, expr)
-
+    
     let toJson(result: EvalResult) =
         match result with
         | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
@@ -631,7 +647,8 @@ module interpreter =
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
-        let input:string = getInputString()
+        //let input:string = getInputString()
+        let input:string = "if(2==3) then{x = 1; y = 5;} else{if(2==2) then { x = 3; y = 3;}}"
         let res = evaluate input
         printfn "Result: %A" res
         printfn "Symbol Table: %A" symbTable
