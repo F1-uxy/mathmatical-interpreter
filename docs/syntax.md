@@ -140,7 +140,7 @@ c = a * b;
 // c = ComplexVal(11.0, -2)
 ```
 
-The helper functions provided are magnitude and conjugate.
+The helper functions provided are magnitude and conjugate and take a ComplexVal as a single argument.
 ```
 a = complex(3, 4);
 b = magnitude(a);
