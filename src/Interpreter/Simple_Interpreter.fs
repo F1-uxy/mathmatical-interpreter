@@ -16,9 +16,11 @@ module interpreter =
     open MathInterpreter.Exceptions
     open Newtonsoft.Json
     type NumericValue =
-        IntVal of int | FloatVal of float
+        | IntVal of int
+        | FloatVal of float
+        | ComplexVal of float * float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
@@ -69,24 +71,71 @@ module interpreter =
     let toFloat = function
         | IntVal i -> float i
         | FloatVal f -> f
+    
+    let toComplex = function
+        | IntVal i -> (float i, 0.0)
+        | FloatVal f -> (float f, 0.0)
+        | ComplexVal (r, i) -> (r, i)
+    
+    let isComplex = function
+        | ComplexVal _ -> true
+        | _ -> false
+    
+    let complexToString (r, i) =
+        if i = 0.0 then string r
+        elif r = 0.0 then $"{i}i"
+        elif i > 0.0 then $"{r}+{i}i"
+        else $"{r}{i}i"
+        
+        
+    
+    let addComplex (r1, i1) (r2, i2) =
+        ComplexVal (r1 + r2, i1 + i2)
+    
+    let subComplex (r1, i1) (r2, i2) =
+        ComplexVal (r1 - r2, i1 - i2)
+        
+    let mulComplex (r1, i1) (r2, i2) =
+        let real = r1 * r2 - i1 * i2
+        let imag = r1 * i2 + i1 * r2
+        ComplexVal (real, imag)
+
+    let divComplex (r1, i1) (r2, i2) =
+        if r2 = 0.0 && i2 = 0.0 then
+            raise(DivisionByZeroException("Division by zero"))
+        let denom = r2 * r2 + i2 * i2
+        let real = (r1 * r2 + i1 * i2) / denom
+        let imag = (i1 * r2 - r1 * i2) / denom
+        ComplexVal (real, imag)
+        
     let addNums a b =
         match (a, b) with
         | (IntVal x, IntVal y) -> IntVal ( x + y )
+        | (ComplexVal _, _) | (_, ComplexVal _) -> 
+            addComplex (toComplex a) (toComplex b)
         | _ -> FloatVal (toFloat a + toFloat b)
+    
     let subNums a b=
         match (a, b) with
         | (IntVal x, IntVal y) -> IntVal (x - y)
+        | (ComplexVal _, _) | (_, ComplexVal _) -> 
+            subComplex (toComplex a) (toComplex b)
         | _ -> FloatVal (toFloat a - toFloat b)
+
     let mulNums a b =
         match (a, b) with
         | (IntVal x, IntVal y) -> IntVal (x * y)
+        | (ComplexVal _, _) | (_, ComplexVal _) -> 
+            mulComplex (toComplex a) (toComplex b)
         | _ -> FloatVal (toFloat a * toFloat b)
-    
+
     let divNums a b =
         match (a, b) with
         | (FloatVal 0.0, _) | (IntVal 0, _) -> 
             raise(DivisionByZeroException("Division by zero"))
         | (IntVal x, IntVal y) -> IntVal (x / y)
+        | (ComplexVal _, _) | (_, ComplexVal _) -> 
+            divComplex (toComplex a) (toComplex b)
         | _ -> 
             let result = toFloat a / toFloat b
             if result = floor result then
@@ -115,9 +164,15 @@ module interpreter =
         | FloatVal x, FloatVal y -> x = y
         | IntVal x, FloatVal y -> float x = y
         | FloatVal x, IntVal y -> x = float y
-    
+        | ComplexVal (r1, i1), ComplexVal (r2, i2) -> r1 = r2 && i1 = i2
+        | ComplexVal (r, i), _ when i = 0.0 -> r = toFloat b
+        | _, ComplexVal (r, i) when i = 0.0 -> toFloat a = r
+        | _ -> false
+        
     let numericGreaterThan (a: NumericValue) (b: NumericValue) =
         match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
         | IntVal x, IntVal y -> x > y
         | FloatVal x, FloatVal y -> x > y
         | IntVal x, FloatVal y -> float x > y
@@ -125,6 +180,8 @@ module interpreter =
     
     let numericLessThan (a: NumericValue) (b: NumericValue) =
         match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
         | IntVal x, IntVal y -> x < y
         | FloatVal x, FloatVal y -> x < y
         | IntVal x, FloatVal y -> float x < y
@@ -207,6 +264,36 @@ module interpreter =
                 match args with
                 | [x] -> FloatVal (Math.Sqrt(toFloat x))
                 | _ -> raise (FunctionArgsException("sqrt takes 1 argument")))
+            "complex", (fun args ->
+                match args with
+                | [IntVal r; IntVal i] -> ComplexVal (float r, float i)
+                | [FloatVal r; FloatVal i] -> ComplexVal (r, i)
+                | [IntVal r; FloatVal i] -> ComplexVal (float r, i)
+                | [FloatVal r; IntVal i] -> ComplexVal (r, float i)
+                | _ -> raise (FunctionArgsException("complex takes 2 arguments (real, imaginary)")))
+            "real", (fun args ->
+                match args with
+                | [ComplexVal (r, _)] -> FloatVal r
+                | [IntVal x] -> IntVal x
+                | [FloatVal f] -> FloatVal f
+                | _ -> raise (FunctionArgsException("real takes 1 argument")))
+            "imag", (fun args ->
+                match args with
+                | [ComplexVal (_, i)] -> FloatVal i
+                | [IntVal _] -> IntVal 0
+                | [FloatVal _] -> FloatVal 0.0
+                | _ -> raise (FunctionArgsException("imag takes 1 argument")))
+            "magnitude", (fun args ->
+                match args with
+                | [ComplexVal (r, i)] -> FloatVal (sqrt(r * r + i * i))
+                | [IntVal x] -> FloatVal (abs (float x))
+                | [FloatVal f] -> FloatVal (abs f)
+                | _ -> raise (FunctionArgsException("magnitude takes 1 argument")))
+            "conjugate", (fun args ->
+                match args with
+                | [ComplexVal (r, i)] -> ComplexVal (r, -i)
+                | [x] -> x
+                | _ -> raise (FunctionArgsException("conjugate takes 1 argument")))
         ]
     
     let argsToString args =
@@ -251,6 +338,8 @@ module interpreter =
             | '^'::tail -> Pow :: scan tail
             | '('::tail -> Lpar:: scan tail
             | ')'::tail -> Rpar:: scan tail
+            | '{'::tail -> Lcurl:: scan tail
+            | '}'::tail -> Rcurl:: scan tail
             | ','::tail -> Comma:: scan tail
             | '='::'='::tail -> EqEq :: scan tail
             | '='::tail -> Eq :: scan tail
@@ -390,7 +479,7 @@ module interpreter =
             loop (IntVal 0)
 
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
-
+        
     let rec parse tList =
         let rec Program tList =
             let rec collect stmts tokens =
@@ -470,43 +559,53 @@ module interpreter =
             | _ -> (tList, left)
         
         and F tList =
+            let rec parseBlock tokens = // We need this helper function so that the parser can extract the code block
+                let rec loop acc t =
+                    match t with
+                    | Rcurl :: rest -> rest, Prog(List.rev acc)
+                    | Semi :: rest -> loop acc rest
+                    | [] -> raise (ParseException "Expected ')' to close block")
+                    | _ ->
+                        let (rest, stmt) = S t
+                        loop (stmt :: acc) rest
+                loop [] tokens
+            
             match tList with
             | Id "if" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
-                | Rpar :: Id "then" :: thenTail ->
-                    let (restThen, thenExpr) = S thenTail
+                | Rpar :: Id "then" :: Lcurl :: thenTail ->
+                    let (restThen, thenExpr) = parseBlock thenTail
                     match restThen with
-                    | Id "else" :: tailElse ->
-                        let (restElse, elseExpr) = S tailElse
+                    | Id "else" :: Lcurl :: elseTail ->
+                        let (restElse, elseExpr) = parseBlock elseTail
                         restElse, IfExpr(condExpr, thenExpr, Some elseExpr)
                     | _ -> restThen, IfExpr(condExpr, thenExpr, None)
-                | _ -> raise(ParseException("Unknown conditional form"))
+                | _ -> raise(ParseException "Unknown conditional form")
                 
-            | Id "for"  :: Lpar :: Id varName :: Eq :: tail ->
+            | Id "for" :: Lpar :: Id varName :: Eq :: tail ->
                 let (rest1, startExpr) = Comp tail
                 match rest1 with
                 | Id "to" :: tail2 ->
                     let (rest2, endExpr) = Comp tail2
                     match rest2 with
-                    | Rpar :: Id "do" :: tail3 ->
-                        let (rest3, bodyStatements) = parseForBody tail3 []
-                        match rest3 with
-                        | Id "end" :: rest4 ->
-                            (rest4, ForLoop(varName, startExpr, endExpr, bodyStatements))
-                        | _ -> raise (ParseException"Expected 'end'")
-                    | _ -> raise (ParseException "Expected ') do'")
-                | _ -> raise (ParseException "Expected 'to'")
+                    | Rpar :: Id "do" :: Lcurl :: bodyTail ->
+                        match parseBlock bodyTail with
+                        | rest3, Prog bodyList ->
+                            (rest3, ForLoop(varName, startExpr, endExpr, bodyList))
+                        | _ -> raise (ParseException "Block did not return a Prog node")
+                    | _ -> raise (ParseException "Expected ') do {' in for loop")
+                | _ -> raise (ParseException "Expected 'to' in for loop")
+
             | Id "while" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
-                | Rpar :: Id "do" :: tail2 ->
-                    let(rest2, bodyStatements) = parseForBody tail2 []
-                    match rest2 with
-                    | Id "end" :: rest3 ->
-                        (rest3, WhileLoop(condExpr, bodyStatements))
-                    | _ -> raise (ParseException "Expected 'end' after while body")
-                | _ -> raise (ParseException "Expected ') do' in while loop")
+                | Rpar :: Id "do" :: Lcurl :: bodyTail ->
+                    match parseBlock bodyTail with
+                    | restBody, Prog bodyList ->
+                        (restBody, WhileLoop(condExpr, bodyList))
+                    | _ -> raise (ParseException "Block did not return a Prog node")
+                | _ -> raise (ParseException "Expected ') do {' in while loop")
 
             | Id name :: Lpar :: tail ->
                 let (rest, args) = Args tail
@@ -528,7 +627,9 @@ module interpreter =
                 | _ -> raise (ParseException "Expected ')'")
             | Num n :: tail -> (tail, Int(n))
             | Id name :: tail -> (tail, Var(name))
-            | _ -> raise (ParseException "Unexpected token in factor")
+            | _ ->
+                printf $"NR: {tList}"
+                raise (ParseException "Unexpected token in factor")
         
         and Args tList =
             match tList with
@@ -542,13 +643,7 @@ module interpreter =
                 let (tList', next) = E tail
                 ArgList (tList', next :: acc)
             | _ -> (tList, List.rev acc)
-        and parseForBody tokens acc =
-            match tokens with
-            | Id "end" :: _ -> (tokens, List.rev acc)
-            | Semi :: tail -> parseForBody tail acc
-            | _ ->
-                let (rest, stmt) = S tokens
-                parseForBody rest (stmt :: acc)
+            
         match tList with
         | [] -> raise (ParseException "Empty input")
         | _ ->
@@ -698,6 +793,7 @@ module interpreter =
     let printValue = function
     | IntVal x -> string x
     | FloatVal f -> string f
+    | ComplexVal (r, i) -> complexToString (r, i)
 
     let writeToFile (fileName : string, str : string) =
         let path = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
