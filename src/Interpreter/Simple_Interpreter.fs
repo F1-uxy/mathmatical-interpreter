@@ -530,31 +530,29 @@ module interpreter =
                     | _ -> restThen, IfExpr(condExpr, thenExpr, None)
                 | _ -> raise(ParseException "Unknown conditional form")
                 
-            | Id "for"  :: Lpar :: Id varName :: Eq :: tail ->
+            | Id "for" :: Lpar :: Id varName :: Eq :: tail ->
                 let (rest1, startExpr) = Comp tail
                 match rest1 with
                 | Id "to" :: tail2 ->
                     let (rest2, endExpr) = Comp tail2
                     match rest2 with
-                    | Rpar :: Id "do" :: tail3 ->
-                        let (rest3, bodyStatements) = parseForBody tail3 []
-                        match rest3 with
-                        | Id "end" :: rest4 ->
-                            (rest4, ForLoop(varName, startExpr, endExpr, bodyStatements))
-                        | _ -> raise (ParseException"Expected 'end'")
-                    | _ -> raise (ParseException "Expected ') do'")
-                | _ -> raise (ParseException "Expected 'to'")
-                
+                    | Rpar :: Id "do" :: Lcurl :: bodyTail ->
+                        match parseBlock bodyTail with
+                        | rest3, Prog bodyList ->
+                            (rest3, ForLoop(varName, startExpr, endExpr, bodyList))
+                        | _ -> raise (ParseException "Block did not return a Prog node")
+                    | _ -> raise (ParseException "Expected ') do {' in for loop")
+                | _ -> raise (ParseException "Expected 'to' in for loop")
+
             | Id "while" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
-                | Rpar :: Id "do" :: tail2 ->
-                    let(rest2, bodyStatements) = parseForBody tail2 []
-                    match rest2 with
-                    | Id "end" :: rest3 ->
-                        (rest3, WhileLoop(condExpr, bodyStatements))
-                    | _ -> raise (ParseException "Expected 'end' after while body")
-                | _ -> raise (ParseException "Expected ') do' in while loop")
+                | Rpar :: Id "do" :: Lcurl :: bodyTail ->
+                    match parseBlock bodyTail with
+                    | restBody, Prog bodyList ->
+                        (restBody, WhileLoop(condExpr, bodyList))
+                    | _ -> raise (ParseException "Block did not return a Prog node")
+                | _ -> raise (ParseException "Expected ') do {' in while loop")
 
             | Id name :: Lpar :: tail ->
                 let (rest, args) = Args tail
@@ -592,13 +590,7 @@ module interpreter =
                 let (tList', next) = E tail
                 ArgList (tList', next :: acc)
             | _ -> (tList, List.rev acc)
-        and parseForBody tokens acc =
-            match tokens with
-            | Id "end" :: _ -> (tokens, List.rev acc)
-            | Semi :: tail -> parseForBody tail acc
-            | _ ->
-                let (rest, stmt) = S tokens
-                parseForBody rest (stmt :: acc)
+            
         match tList with
         | [] -> raise (ParseException "Empty input")
         | _ ->
@@ -648,7 +640,7 @@ module interpreter =
     let main argv  =
         Console.WriteLine("Simple Interpreter")
         //let input:string = getInputString()
-        let input:string = "if(2==3) then{x = 1; y = 5;} else{if(2==2) then { x = 3; y = 3;}}"
+        let input:string = ""
         let res = evaluate input
         printfn "Result: %A" res
         printfn "Symbol Table: %A" symbTable
