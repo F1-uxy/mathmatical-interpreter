@@ -603,20 +603,30 @@ module interpreter =
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
         
     let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
-        let xs = [| for x in seq { float xMin .. stepSize .. float xMax } -> x |]
-        let ys = xs |> Array.map ( fun x ->
+        let xs = ResizeArray<float>()
+        let ys = ResizeArray<float>()
+
+        for x in seq { xMin .. stepSize .. xMax } do
             let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
             let substituted = expr.Replace("x", replacement)
             let lexed = lexer substituted
             let (_, ast) = parse lexed
-            let result = astEvaluate ast
-            toFloat result
-            )
-        
-        let res = Plot(xs, ys)
-        let ret = toJson(res)
-        ret
-    
+
+            try
+                let result = astEvaluate ast
+                let y = toFloat result
+                if not (Double.IsNaN y) && not (Double.IsInfinity y) then
+                    xs.Add(x)
+                    ys.Add(y)
+            with
+            | :? DivisionByZeroException ->
+                xs.Add(x)
+                ys.Add(Double.NaN)
+            | _ -> ()
+
+        let res = Plot(xs.ToArray(), ys.ToArray())
+        toJson(res)
+
     let rec printTList (lst:list<terminal>) : list<string> = 
         match lst with
         head::tail -> Console.Write("{0} ",head.ToString())
