@@ -716,7 +716,33 @@ module interpreter =
                 elseCode @
                 [ TACAssign(resultTemp, elseTemp)
                   TACLabel endLabel ]
+            code, resultTemp
+                
+        | ForLoop(varName, startExpr, endExpr, bodyStatements) ->
+            let (startCode, startTemp) = flattenIRtoTAC startExpr
+            let (endCode, endTemp) = flattenIRtoTAC endExpr
+            let loopStart = newLabel "for_loop"
+            let loopEnd = newLabel "for_end"
+            let bodyProg = Prog(bodyStatements)
+            let (bodyCode, bodyTemp) = flattenIRtoTAC bodyProg
+            let condTemp = assignTemp()
+            let incTemp = assignTemp()
+            let resultTemp = assignTemp()
 
+            let code =
+                startCode @                              
+                [TACAssign(varName, startTemp)] @        
+                endCode @                                
+                [TACLabel loopStart] @                   
+                [TACEquiv(condTemp, varName, ">", endTemp)] @  
+                [TACIf(condTemp, loopEnd)] @             
+                bodyCode @                               
+                [TACAssign(resultTemp, bodyTemp)] @      
+                [TACBinary(incTemp, varName, "+", "1")] @ 
+                [TACAssign(varName, incTemp)] @          
+                [TACGoto loopStart] @                    
+                [TACLabel loopEnd]                       
+            
             code, resultTemp
         | Prog exprs ->
             let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
@@ -808,6 +834,13 @@ module interpreter =
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
+        
+        // Test For Loop
+        let forTest = "x = 0; for(i = 1 to 5) do { x = x + i }"
+        let forCompiled = compile(forTest)
+        writeToFile("for_test.c", forCompiled)
+        printfn "%s" forCompiled
+        
         
         // Test compiler
         let compilerInput = "x = 5; x = 6; if(x < 1) then { 2*2 }"
