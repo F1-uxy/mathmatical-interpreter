@@ -804,19 +804,21 @@ module interpreter =
         let (tac, last) = flattenIRtoTAC ast
         let str = tacString tac
         str
-        
+            
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
-        //writeToFile("test.c", "My test string")
-        //let input:string = getInputString()
-        let input:string = "x = 5; x = 6; if(x < 1)then(2*2);"
-        let res = compile(input)
-        writeToFile("test.c", res)
-        //let input:string = getInputString()
-        let input:string = ""
-        let res = evaluate input
-        printfn "Result: %A" res
+        
+        // Test compiler
+        let compilerInput = "x = 5; x = 6; if(x < 1) then { 2*2 }"
+        let compiled = compile(compilerInput)
+        writeToFile("test.c", compiled)
+        printfn "Compiled successfully!"
+        
+        // Test evaluator
+        let evalInput = "5 + 3 * 2"
+        let result = evaluate evalInput
+        printfn "Result: %A" result
         printfn "Symbol Table: %A" symbTable
+        
         0
-
