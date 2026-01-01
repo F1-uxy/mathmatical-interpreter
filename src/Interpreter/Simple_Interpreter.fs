@@ -744,6 +744,27 @@ module interpreter =
                 [TACLabel loopEnd]                       
             
             code, resultTemp
+            
+        | WhileLoop(condExpr, bodyStatements) ->
+            
+            let loopStart = newLabel "while_loop"
+            let loopEnd = newLabel "while_end"
+            let (condCode, condTemp) = flattenIRtoTAC condExpr
+            let bodyProg = Prog(bodyStatements)
+            let (bodyCode, bodyTemp) = flattenIRtoTAC bodyProg
+            let resultTemp = assignTemp()
+            let notTemp = assignTemp()
+            let code =
+                [TACLabel loopStart] @                   
+                condCode @                               
+                [TACUnary(notTemp, "!", condTemp)] @     
+                [TACIf(notTemp, loopEnd)] @              
+                bodyCode @                               
+                [TACAssign(resultTemp, bodyTemp)] @      
+                [TACGoto loopStart] @                    
+                [TACLabel loopEnd]                       
+            
+            code, resultTemp
         | Prog exprs ->
             let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
@@ -841,11 +862,17 @@ module interpreter =
         writeToFile("for_test.c", forCompiled)
         printfn "%s" forCompiled
         
+        // Test While Loop
+        let whileTest = "x = 0; while(x < 5) do { x = x + 1 }"
+        let whileCompiled = compile(whileTest)
+        writeToFile("while_test.c", whileCompiled)
+        printfn "%s" whileCompiled
+            
         
-        // Test compiler
+        // Test if
         let compilerInput = "x = 5; x = 6; if(x < 1) then { 2*2 }"
         let compiled = compile(compilerInput)
-        writeToFile("test.c", compiled)
+        writeToFile("if_test.c", compiled)
         printfn "Compiled successfully!"
         
         // Test evaluator
