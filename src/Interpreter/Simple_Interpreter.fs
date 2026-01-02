@@ -7,7 +7,9 @@ namespace MathInterpreter
 
 open System.Collections.Generic
 open System.Diagnostics
+open System.Linq
 open System.Text
+open MathInterpreter
 
 module interpreter = 
 
@@ -55,7 +57,7 @@ module interpreter =
         Number of NumericValue | Plot of X: float[] * Y: float[]
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
-    
+   
     let tempRegs = [ "$t0"; "$t1"; "$t2"; "$t3"; "$t4"; "$t5"; "$t6"; "$t7"; "$t8"; "$t9"]
     let mutable freeRegs = tempRegs
     let tempMap = Dictionary<int, string>()
@@ -301,8 +303,62 @@ module interpreter =
                     |> String.concat ","
         argList
     
+    let collectOperands tacList : Operand list =
+        tacList |> List.collect ( function
+            | TACAssign (dst, src) -> [dst; src]
+            | TACUnary(dst, _, src) ->
+                [dst; src]
+            | TACBinary(dst, src1, _, src2) -> [dst; src1; src2]
+            | TACEquiv(dst, src1, _, src2) -> [dst; src1; src2]
+            | TACIf(x, _) -> [x]
+            | TACCall(dst, _, args) -> dst :: args
+            | TACGoto _
+            | TACLabel _ -> []
+            )
+        |> List.distinct
+        |> List.filter ( function
+            | OpImmInt _ | OpImmFloat _ -> false
+            | _ -> true )
 
-    let tacToRisc tac =
+    let assignSlot(slotSize : int, operands : Operand list) =
+        operands
+            |> List.indexed
+            |> List.map (fun (i, op) -> op, -(i+1) * slotSize)
+            |> Map.ofList
+    
+    let allocateStackSlots operands =
+        let slotSize = 4
+        let map = assignSlot(slotSize, operands)
+        let frameSize = Map.count map * slotSize
+        map, frameSize
+        
+    let buildFrame tac =
+        let operands = collectOperands tac
+        let map, frameSize = allocateStackSlots operands
+        map, frameSize
+    
+    let slotOf (map : Map<Operand, int>, operand : Operand) =
+        match operand with
+        | OpImmInt _ | OpImmFloat _ ->
+            raise(GenerationException("Attemped to get immediate value from stack"))
+        | _ -> map.[operand]
+        
+    let loadStackValue(map : Map<Operand, int>, register: int, operand : Operand) =
+        match operand with
+        | OpImmInt i ->
+            sprintf $"li t{register}, {i}"
+        | _ ->
+            let offset = slotOf(map, operand)
+            sprintf $"li t{register}, {offset}(s0)"
+    
+    let storeStackValue(map : Map<Operand, int>, register: int, operand : Operand) =
+        let offset = slotOf(map, operand)
+        sprintf $"sw {register}, {offset}(s0)"
+        
+    let riscvPreamble frameSize =
+        sprintf $"addi sp, sp, -{frameSize}"
+
+    let tacToRisc (tac : TAC ) (map : Map<Operand, int>) =
         match tac with
         | TACBinary (t, x, op, y) ->
             match t, x, y with
@@ -323,6 +379,10 @@ module interpreter =
                                     $"sw t{y}, {offset}($sp)"
             | OpTemp x, OpImmInt y ->
                                     $"li t{x}, {y}"
+            | OpVar x, OpImmInt y ->
+                                    let reg = 0
+                                    let stackOffset = slotOf(map, OpVar x)
+                                    $"li t{reg}, {y} \nsw t{reg}, {stackOffset}(sp)"
             | _ -> raise(GenerationException("Unknown assign format"))
         | _ -> ""
         
@@ -761,7 +821,7 @@ module interpreter =
         | _ ->
             printf "%A\n" ir
             raise (ParseException("Unknown IR token during flattening"))
-        
+
     let toJson(result: EvalResult) =
         match result with
         | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
@@ -817,11 +877,13 @@ module interpreter =
         file.Close()
         //File.Delete(path)
     
-    let tacString tac =
+    let tacString (taclist : TAC list) (map : Map<Operand, int>)=
         //let tempDecs = declareTemps tac
-        let body = tac
-                    |> List.map tacToRisc
-                    |> String.concat "\n"
+        let header = riscvPreamble 
+        let body =
+            taclist
+            |> List.map (fun tac -> tacToRisc tac map)
+            |> String.concat "\n"
         body
             
     let evaluate(expr: string) : NumericValue =
@@ -838,15 +900,19 @@ module interpreter =
         printfn "AST: %A" ast
         let (tac, last) = flattenIRtoTAC ast
         printfn "TAC: %A" tac
-        let str = tacString tac
-        str
+        let map, frameSize = buildFrame tac
+        printfn "Map: %A" map
+        printfn "Frame Size: %A" frameSize
+        let header = riscvPreamble frameSize
+        let body = tacString tac map
+        sprintf $"{header}\n{body}"
         
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
         //writeToFile("test.c", "My test string")
         //let input:string = getInputString()
-        let input:string = "1+2; 3+4;"
+        let input:string = "x=2; 3+4;"
         let res = compile(input)
         writeToFile("test.s", res)
         let res = evaluate input
