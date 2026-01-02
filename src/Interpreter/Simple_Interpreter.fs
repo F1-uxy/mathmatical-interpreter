@@ -31,12 +31,10 @@ module interpreter =
         | ForLoop of string * Expr * Expr * Expr list
         | WhileLoop of Expr * Expr list
         | Prog of Expr list
-        
-    type PlotSegment = float[] * float[]
-    
+            
     type EvalResult =
         | Number of NumericValue
-        | PlotSegments of PlotSegment list 
+        | Plot of X: float[] * Y: float[]
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
     
@@ -600,35 +598,63 @@ module interpreter =
             let (rest, expr) = Program tList
             (rest, expr)
     
-    let toJson(result: EvalResult) =
+    let evalResultToObj(result: EvalResult) =
         match result with
-        | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
-        | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
+        | Number n -> box {| ``type`` = "number"; value = n |}
+        | Plot (xs, ys) -> box {| ``type`` = "plot"; x = xs; y = ys |}
         
-    let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
-        let xs = ResizeArray<float>()
-        let ys = ResizeArray<float>()
-
-        for x in seq { xMin .. stepSize .. xMax } do
-            let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
+    let plotsToJson(plots : EvalResult list) =
+        plots |> List.map evalResultToObj |> JsonConvert.SerializeObject
+    
+    let evalSample (expr : string, x : float) =
+        try
+            let replacement = $"({x.ToString(System.Globalization.CultureInfo.InvariantCulture)})"
             let substituted = expr.Replace("x", replacement)
             let lexed = lexer substituted
             let (_, ast) = parse lexed
 
-            try
-                let result = astEvaluate ast
-                let y = toFloat result
-                if not (Double.IsNaN y) && not (Double.IsInfinity y) then
-                    xs.Add(x)
-                    ys.Add(y)
-            with
-            | :? DivisionByZeroException ->
-                xs.Add(x)
-                ys.Add(Double.NaN)
-            | _ -> ()
+            let y = astEvaluate ast |> toFloat
+            if Double.IsNaN y || Double.IsInfinity y then None
+            else Some y
+        with
+        | :? DivisionByZeroException -> None
+        | _ -> None
+    
+    let splitPlots samples =
+        let folder (plots, currentXs, currentYs) (x, yOpt) =
+            match yOpt with
+            | Some y ->
+                plots, x :: currentXs, y :: currentYs
 
-        let res = Plot(xs.ToArray(), ys.ToArray())
-        toJson(res)
+            | None ->
+                match currentXs with
+                | [] -> plots, [], []
+                | _  ->
+                    let plot =
+                        Plot (Array.ofList (List.rev currentXs),
+                              Array.ofList (List.rev currentYs))
+                    plot :: plots, [], []
+
+        let plots, xs, ys =
+            samples |> List.fold folder ([], [], [])
+
+        let plots =
+            match xs with
+            | [] -> plots
+            | _  ->
+                Plot (Array.ofList (List.rev xs),
+                      Array.ofList (List.rev ys)) :: plots
+
+        List.rev plots
+    let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
+        let samples =
+            [ for x in seq { xMin .. stepSize .. xMax } ->
+                x, evalSample(expr, x) ]
+
+        samples
+        |> splitPlots
+        |> List.map evalResultToObj
+        |> JsonConvert.SerializeObject
 
     let rec printTList (lst:list<terminal>) : list<string> = 
         match lst with

@@ -247,35 +247,38 @@ namespace GUI
             try
             {
                 string json = MathInterpreter.interpreter.evalPlot(expression, xMin, xMax, StepInput);
-                JObject obj = JObject.Parse(json);
-                string type = (string)obj["type"];
-
-                if (type == "plot")
+                JArray objs = JArray.Parse(json);
+                
+                MyModel.Title = expression;
+                MyModel.Series.Clear();
+                
+                foreach (JObject obj in objs)
                 {
-                    double[] x = obj["x"].ToObject<double[]>();
-                    double[] y = obj["y"].ToObject<double[]>();
+                    string type = (string)obj["type"];
 
-                    MyModel.Title = expression;
-                    MyModel.Series.Clear();
-                    var series = new LineSeries { Title = expression };
-                    //PlotModel model = new PlotModel { Title = $"{expression}" };
-                    //LineSeries series = new LineSeries { Title = expression };
-                    if (MarkerEnabled)
+                    if (type == "plot")
                     {
-                        series.MarkerType = MarkerType.Circle;
-                        series.MarkerSize = 3;
-                        series.MarkerStroke = OxyColors.Black;
-                    }
+                        double[] x = obj["x"].ToObject<double[]>();
+                        double[] y = obj["y"].ToObject<double[]>();
+                        var series = new LineSeries();
+                        
+                        if (MarkerEnabled)
+                        {
+                            series.MarkerType = MarkerType.Circle;
+                            series.MarkerSize = 3;
+                            series.MarkerStroke = OxyColors.Black;
+                        }
 
-                    for (int i = 0; i < x.Length; i++)
-                    {
-                        series.Points.Add(new DataPoint(x[i], y[i]));
-                    }
+                        for (int i = 0; i < x.Length; i++)
+                        {
+                            series.Points.Add(new DataPoint(x[i], y[i]));
+                        }
 
-                    MyModel.Series.Add(series);
-                    //MyModel.InvalidatePlot(true);
-                    //OnPropertyChanged(nameof(MyModel));
+                        MyModel.Series.Add(series);
+                    }
                 }
+                
+                MyModel.InvalidatePlot(true);
             }
             catch (Exception e)
             {
