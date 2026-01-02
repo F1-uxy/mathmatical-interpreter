@@ -32,8 +32,11 @@ module interpreter =
         | WhileLoop of Expr * Expr list
         | Prog of Expr list
         
+    type PlotSegment = float[] * float[]
+    
     type EvalResult =
-        Number of NumericValue | Plot of X: float[] * Y: float[]
+        | Number of NumericValue
+        | PlotSegments of PlotSegment list 
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
     
