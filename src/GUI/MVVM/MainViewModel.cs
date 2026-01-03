@@ -38,6 +38,7 @@ namespace GUI
         private string _compilerOutput = string.Empty;
         private string _terminalOutput = string.Empty;
         private readonly string _compilerOutputDir = "out/";
+        private string _selectedLanguage = "C";
         
         private float _xMinInput = 0;
         private float _xMaxInput = 0;
@@ -58,6 +59,7 @@ namespace GUI
         public PlotModel MyModel { get; private set; }
 
         public ObservableCollection<SymbolTableEntry> SymbolTable { get; } = new ObservableCollection<SymbolTableEntry>();
+        public ObservableCollection<string> Languages { get; } = new() { "C", "RISC-V" };
         
         public MainViewModel()
         {
@@ -120,6 +122,20 @@ namespace GUI
                     return;
                 }
                 _compilerOutput = value;
+                OnPropertyChanged();
+            }
+        }
+        
+        public string SelectedLanguage
+        {
+            get => _selectedLanguage;
+            set
+            {
+                if(_selectedLanguage == value)
+                {
+                    return;
+                }
+                _selectedLanguage = value;
                 OnPropertyChanged();
             }
         }
