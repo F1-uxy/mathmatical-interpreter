@@ -362,9 +362,16 @@ module interpreter =
         match tac with
         | TACBinary (t, x, op, y) ->
             match t, x, y with
-            | OpTemp t, OpVar x, OpImmInt y -> $"addi t{t}, t{x}, {y},"
+            | OpTemp t, OpVar x, OpImmInt y ->
+                                                let offset = slotOf(map, OpVar x)
+                                                $"addi t{t}, {offset}(sp), {y},"
             | OpTemp t, OpTemp x, OpImmInt y -> $"addi t{t}, t{x}, {y},"
-            | OpTemp t, OpVar x, OpVar y -> $"add t{t}, t{x}, t{y}"
+            | OpTemp t, OpVar x, OpVar y ->
+                                            let xReg = 0
+                                            let yReg = 0
+                                            let xOffset = slotOf(map, OpVar x)
+                                            let yOffset = slotOf(map, OpVar y)
+                                            $"lw t{xReg}, {xOffset}(sp) \nlw t{yReg}, {yOffset}(sp) \nadd t{t}, t{xReg}, t{yReg}"
             | OpTemp t, OpTemp x, OpTemp y -> $"add t{t}, t{x}, t{y}"
             | _ -> raise(GenerationException("Unknown add format"))
         | TACAssign (x, y) ->
@@ -373,10 +380,10 @@ module interpreter =
                                     let t = 0
                                     let xOffset = 0
                                     let yOffset = 0
-                                    $"lw t{t}, {yOffset}($sp) \nsw t{t}, {xOffset}($sp)"
+                                    $"lw t{t}, {yOffset}($sp) \nsw t{t}, {xOffset}(sp)"
             | OpVar x, OpTemp y ->
-                                    let offset = 0
-                                    $"sw t{y}, {offset}($sp)"
+                                    let offset = slotOf(map, OpVar x)
+                                    $"sw t{y}, {offset}(sp)"
             | OpTemp x, OpImmInt y ->
                                     $"li t{x}, {y}"
             | OpVar x, OpImmInt y ->
@@ -893,7 +900,7 @@ module interpreter =
         let result = astEvaluate ast
         result  
     
-    let compile(expr: string) : string =
+    let riscvCompile(expr: string) : string =
         let tokens = lexer expr
         printfn "Tokens: %A" tokens
         let (_, ast) = parse tokens
@@ -912,11 +919,11 @@ module interpreter =
         Console.WriteLine("Simple Interpreter")
         //writeToFile("test.c", "My test string")
         //let input:string = getInputString()
-        let input:string = "x=2; 3+4;"
-        let res = compile(input)
+        let input:string = "x=2; y=4; z=x+y;"
+        let res = riscvCompile(input)
         writeToFile("test.s", res)
-        let res = evaluate input
-        printfn "Result: %A" res
-        printfn "Symbol Table: %A" symbTable
+        //let res = evaluate input
+        //printfn "Result: %A" res
+        //printfn "Symbol Table: %A" symbTable
         0
 
