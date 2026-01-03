@@ -407,7 +407,7 @@ module interpreter =
     
     let tacToString tac =
         match tac with
-        | TACAssign (x, y) -> $"{operandToString x} = {operandToString y}"
+        | TACAssign (x, y) -> $"{operandToString x} = {operandToString y};"
         | TACBinary (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
         | TACUnary (t, op, x) -> $"{operandToString t} = {op} {operandToString x};"
         | TACCall (t, funcName, args) -> $"{operandToString t} = {funcName}({(operandListToString args)});" // We need to differentiate void functions
@@ -758,19 +758,31 @@ module interpreter =
           
     let declareTemps tac =
         tempCounter <- 0
-        tac
-        |> List.choose (function
-            | TACAssign(OpTemp t, _)
-            | TACBinary(OpTemp t, _, _, _)
-            | TACEquiv(OpTemp t, _, _, _)
-            | TACUnary(OpTemp t, _, _)
-            | TACCall(OpTemp t, _, _) -> Some (OpTemp t)
-            | _ -> None
-        )
-        |> Set.ofList
-        |> Set.toList
-        |> List.map operandToCDecl
-        |> String.concat ", "
+        let allOperands = collectOperands tac
+        let temps = 
+            allOperands 
+            |> List.choose (function 
+                | OpTemp t -> Some t 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+            |> List.map (fun t -> $"t{t}")
+        let vars = 
+            allOperands 
+            |> List.choose (function 
+                | OpVar v -> Some v 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+            
+        let allDecls = temps @ vars
+        
+        if allDecls.IsEmpty then 
+            ""
+        else
+            allDecls
+            |> String.concat ", "
+            |> fun s -> $"{s};"
 
         
     let rec flattenIRtoTAC ir =
@@ -1049,7 +1061,7 @@ module interpreter =
             
         
         // Test if
-        let compilerInput = "x = 5; x = 6; if(x < 1) then { 2*2 }"
+        let compilerInput = "x = 5; y = 6; z = x+y; if(x < 1) then { 2*2 }"
         let compiled = cCompile(compilerInput)
         writeToFile("if_test.c", compiled)
         printfn "Compiled successfully!"
