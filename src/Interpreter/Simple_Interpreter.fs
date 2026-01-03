@@ -788,11 +788,9 @@ module interpreter =
     let rec flattenIRtoTAC ir =
         match ir with
         | Int (IntVal value) ->
-            let t = assignTemp()
-            [TACAssign(OpTemp t, OpImmInt value)], OpTemp t
+            [], OpImmInt value
         | Int (FloatVal value) ->
-            let t = assignTemp()
-            [TACAssign(OpTemp t, OpImmFloat value)], OpTemp t
+            [], OpImmFloat value 
         | Var name ->
             [], OpVar name
         | Assign(varName, expr) ->
