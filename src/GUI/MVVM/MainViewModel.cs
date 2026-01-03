@@ -16,6 +16,7 @@ using OxyPlot.Series;
 using System.ComponentModel;
 using System.DirectoryServices.ActiveDirectory;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
 using Microsoft.FSharp.Core;
 using Microsoft.FSharp.Collections;
 using Newtonsoft.Json;
@@ -35,6 +36,10 @@ namespace GUI
         private string _currentExpression = string.Empty;
         private string _inputExpression = string.Empty;
         private string _compilerOutput = string.Empty;
+        private string _terminalOutput = string.Empty;
+        private readonly string _compilerOutputDir = "out/";
+        private string _selectedLanguage = "C";
+        
         private float _xMinInput = 0;
         private float _xMaxInput = 0;
         private float _stepInput = 0;
@@ -54,6 +59,7 @@ namespace GUI
         public PlotModel MyModel { get; private set; }
 
         public ObservableCollection<SymbolTableEntry> SymbolTable { get; } = new ObservableCollection<SymbolTableEntry>();
+        public ObservableCollection<string> Languages { get; } = new() { "C", "RISC-V" };
         
         public MainViewModel()
         {
@@ -116,6 +122,34 @@ namespace GUI
                     return;
                 }
                 _compilerOutput = value;
+                OnPropertyChanged();
+            }
+        }
+        
+        public string SelectedLanguage
+        {
+            get => _selectedLanguage;
+            set
+            {
+                if(_selectedLanguage == value)
+                {
+                    return;
+                }
+                _selectedLanguage = value;
+                OnPropertyChanged();
+            }
+        }
+        
+        public string? TerminalOutput
+        {
+            get => _terminalOutput;
+            set
+            {
+                if(_terminalOutput == value)
+                {
+                    return;
+                }
+                _terminalOutput = value;
                 OnPropertyChanged();
             }
         }
@@ -366,6 +400,30 @@ namespace GUI
                 var code = MathInterpreter.interpreter.compile(expression);
                 
                 CompilerOutput = code.ToString();
+                const string fileName = "user_code";
+                const string fileExtension = ".c";
+                MathInterpreter.interpreter.writeToFile($"{fileName}{fileExtension}", code);
+                string path = AppContext.BaseDirectory;
+                string json = MathInterpreter.interpreter.gccCompile(path, 
+                                                                        $"{_compilerOutputDir}{fileName}{fileExtension}", 
+                                                                        $"{_compilerOutputDir}{fileName}");
+                JObject obj = JObject.Parse(json);
+
+                if (obj["type"]?.ToString() == "compile")
+                {
+                    if (obj["exit"]?.ToString() == "0" && obj["out"] == null)
+                    {
+                        TerminalOutput = (string.IsNullOrWhiteSpace(obj["out"]?.ToString())
+                            ? "GCC Compiled Successfully."
+                            : obj["out"]?.ToString());
+                    }
+                    else
+                    {
+                        TerminalOutput = obj["err"]?.ToString() ?? string.Empty;
+                    }
+                    
+                }
+                
                 InputExpression = string.Empty;
                 UpdateSymbolTable();
             }

@@ -10,6 +10,7 @@ open System.Diagnostics
 open System.Linq
 open System.Text
 open MathInterpreter
+open System.Text
 
 module interpreter = 
 
@@ -297,9 +298,17 @@ module interpreter =
                 | [x] -> x
                 | _ -> raise (FunctionArgsException("conjugate takes 1 argument")))
         ]
-    
-    let argsToString args =
+  
+    let operandToString operand =
+        match operand with
+        | OpVar x -> string x
+        | OpTemp x -> $"t{x}"
+        | OpImmInt x -> string x
+        | OpImmFloat x -> string x
+        
+    let operandListToString args =
         let argList = args
+                    |> List.map operandToString 
                     |> String.concat ","
         argList
     
@@ -334,6 +343,7 @@ module interpreter =
         
     let buildFrame tac =
         let operands = collectOperands tac
+        printf $"Operands: {operands}"
         let map, frameSize = allocateStackSlots operands
         map, frameSize
     
@@ -393,6 +403,21 @@ module interpreter =
             | _ -> raise(GenerationException("Unknown assign format"))
         | _ -> ""
         
+    
+    
+    let tacToString tac =
+        match tac with
+        | TACAssign (x, y) -> $"{operandToString x} = {operandToString y}"
+        | TACBinary (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
+        | TACUnary (t, op, x) -> $"{operandToString t} = {op} {operandToString x};"
+        | TACCall (t, funcName, args) -> $"{operandToString t} = {funcName}({(operandListToString args)});" // We need to differentiate void functions
+                                                                            // and assign return value if not void or we assume there are no void functions?
+        | TACEquiv (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
+        | TACIf (cond, label) -> $"if ({operandToString cond}) goto {label};"
+        | TACGoto label -> $"goto {label};"
+        | TACLabel label -> $"{label}:"
+        | _ -> ""
+
     let lexer input = 
         let rec scan input =
             match input with
@@ -820,6 +845,53 @@ module interpreter =
                   TACLabel endLabel ]
 
             code, OpTemp resultTemp
+        | ForLoop(varName, startExpr, endExpr, bodyStatements) ->
+            let (startCode, startTemp) = flattenIRtoTAC startExpr
+            let (endCode, endTemp) = flattenIRtoTAC endExpr
+            let loopStart = newLabel "for_loop"
+            let loopEnd = newLabel "for_end"
+            let bodyProg = Prog(bodyStatements)
+            let (bodyCode, bodyTemp) = flattenIRtoTAC bodyProg
+            let condTemp = assignTemp()
+            let incTemp = assignTemp()
+            let resultTemp = assignTemp()
+
+            let code =
+                startCode @                              
+                [TACAssign(OpVar varName, startTemp)] @        
+                endCode @                                
+                [TACLabel loopStart] @                   
+                [TACEquiv(OpTemp condTemp, OpVar varName, ">", endTemp)] @  
+                [TACIf(OpTemp condTemp, loopEnd)] @             
+                bodyCode @                               
+                [TACAssign(OpTemp resultTemp, bodyTemp)] @      
+                [TACBinary(OpTemp incTemp, OpVar varName, "+", OpImmInt 1)] @ 
+                [TACAssign(OpVar varName, OpTemp incTemp)] @          
+                [TACGoto loopStart] @                    
+                [TACLabel loopEnd]                       
+            
+            code, OpTemp resultTemp
+            
+        | WhileLoop(condExpr, bodyStatements) ->
+            
+            let loopStart = newLabel "while_loop"
+            let loopEnd = newLabel "while_end"
+            let (condCode, condTemp) = flattenIRtoTAC condExpr
+            let bodyProg = Prog(bodyStatements)
+            let (bodyCode, bodyTemp) = flattenIRtoTAC bodyProg
+            let resultTemp = assignTemp()
+            let notTemp = assignTemp()
+            let code =
+                [TACLabel loopStart] @                   
+                condCode @                               
+                [TACUnary(OpTemp notTemp, "!", condTemp)] @     
+                [TACIf(OpTemp notTemp, loopEnd)] @              
+                bodyCode @                               
+                [TACAssign(OpTemp resultTemp, bodyTemp)] @      
+                [TACGoto loopStart] @                    
+                [TACLabel loopEnd]                       
+            
+            code, OpTemp resultTemp
         | Prog exprs ->
             let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
@@ -884,14 +956,21 @@ module interpreter =
         file.Close()
         //File.Delete(path)
     
-    let tacString (taclist : TAC list) (map : Map<Operand, int>)=
-        //let tempDecs = declareTemps tac
+    let tacRISCVString (taclist : TAC list) (map : Map<Operand, int>)=
         let header = riscvPreamble 
         let body =
             taclist
             |> List.map (fun tac -> tacToRisc tac map)
             |> String.concat "\n"
         body
+        
+    let tacCString tac =
+        let tempDecs = declareTemps tac
+        let body = tac
+                    |> List.map tacToString
+                    |> String.concat "\n"
+        $"#include <math.h>\nint main(){{\nint {tempDecs}\n\n{body}\nreturn 0;\n}}"
+            
             
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
@@ -911,19 +990,76 @@ module interpreter =
         printfn "Map: %A" map
         printfn "Frame Size: %A" frameSize
         let header = riscvPreamble frameSize
-        let body = tacString tac map
+        let body = tacRISCVString tac map
         sprintf $"{header}\n{body}"
         
+    
+    let cCompile(expr: string) : string =
+        let tokens = lexer expr
+        printfn "Tokens: %A" tokens
+        let (_, ast) = parse tokens
+        printfn "AST: %A" ast
+        let (tac, last) = flattenIRtoTAC ast
+        let str = tacCString tac
+        str
+    
+    let gccCompile (workingDirectory : string) (src : string) (dest : string) =
+        let flags = "-Wall -lm"
+        
+        let psi =
+            ProcessStartInfo(
+                FileName = "gcc",
+                Arguments = $"{flags} {src} -o {dest}",
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            )
+        let proc = new Process()
+        proc.StartInfo <- psi
+        proc.Start() |> ignore
+        
+        let stdout = proc.StandardOutput.ReadToEnd()
+        let stderr = proc.StandardError.ReadToEnd()
+        
+        proc.WaitForExit()
+        
+        let json = JsonConvert.SerializeObject({| ``type`` = "compile"; exit = proc.ExitCode; out = stdout; err = stderr |})
+        
+        json
+        
+            
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
-        //writeToFile("test.c", "My test string")
-        //let input:string = getInputString()
-        let input:string = "x=2; y=4; z=x+y;"
-        let res = riscvCompile(input)
-        writeToFile("test.s", res)
-        //let res = evaluate input
-        //printfn "Result: %A" res
-        //printfn "Symbol Table: %A" symbTable
+        
+        // Test For Loop
+        let forTest = "x = sin(1); y = x; for(i = 1 to 5) do { x = x + i }"
+        let forCompiled = cCompile(forTest)
+        writeToFile("for_test.c", forCompiled)
+        printfn "%s" forCompiled
+        
+        // Test While Loop
+        let whileTest = "x = 0; while(x < 5) do { x = x + 1 }"
+        let whileCompiled = cCompile(whileTest)
+        writeToFile("while_test.c", whileCompiled)
+        printfn "%s" whileCompiled
+            
+        
+        // Test if
+        let compilerInput = "x = 5; x = 6; if(x < 1) then { 2*2 }"
+        let compiled = cCompile(compilerInput)
+        writeToFile("if_test.c", compiled)
+        printfn "Compiled successfully!"
+        
+        // Test evaluator
+        let evalInput = "5 + 3 * 2"
+        let result = evaluate evalInput
+        printfn "Result: %A" result
+        printfn "Symbol Table: %A" symbTable
+        
+        // Test RISC-V Compiler
+        let compilerInput = "x = 5; y = 6; z = x + y;"
+        let compiled = riscvCompile(compilerInput)
         0
-
