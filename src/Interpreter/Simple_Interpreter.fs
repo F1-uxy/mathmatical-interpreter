@@ -991,7 +991,8 @@ module interpreter =
         printfn "Frame Size: %A" frameSize
         let header = riscvPreamble frameSize
         let body = tacRISCVString tac map
-        sprintf $"{header}\n{body}"
+        let code = sprintf $"{header}\n{body}"
+        code
         
     
     let cCompile(expr: string) : string =

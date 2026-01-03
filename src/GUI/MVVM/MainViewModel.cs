@@ -397,31 +397,43 @@ namespace GUI
             
             try
             {
-                var code = MathInterpreter.interpreter.compile(expression);
-                
-                CompilerOutput = code.ToString();
                 const string fileName = "user_code";
-                const string fileExtension = ".c";
-                MathInterpreter.interpreter.writeToFile($"{fileName}{fileExtension}", code);
-                string path = AppContext.BaseDirectory;
-                string json = MathInterpreter.interpreter.gccCompile(path, 
-                                                                        $"{_compilerOutputDir}{fileName}{fileExtension}", 
-                                                                        $"{_compilerOutputDir}{fileName}");
-                JObject obj = JObject.Parse(json);
-
-                if (obj["type"]?.ToString() == "compile")
+                string fileExtension = string.Empty;
+                string code = string.Empty;
+                
+                if (SelectedLanguage == "C")
                 {
-                    if (obj["exit"]?.ToString() == "0" && obj["out"] == null)
-                    {
-                        TerminalOutput = (string.IsNullOrWhiteSpace(obj["out"]?.ToString())
-                            ? "GCC Compiled Successfully."
-                            : obj["out"]?.ToString());
-                    }
-                    else
-                    {
-                        TerminalOutput = obj["err"]?.ToString() ?? string.Empty;
-                    }
+                    code = MathInterpreter.interpreter.cCompile(expression);
+                    CompilerOutput = code;
+                    fileExtension = ".c";
                     
+                    MathInterpreter.interpreter.writeToFile($"{fileName}{fileExtension}", code);
+                    string path = AppContext.BaseDirectory;
+                    string json = MathInterpreter.interpreter.gccCompile(path, 
+                        $"{_compilerOutputDir}{fileName}{fileExtension}", 
+                        $"{_compilerOutputDir}{fileName}");
+                    JObject obj = JObject.Parse(json);
+
+                    if (obj["type"]?.ToString() == "compile")
+                    {
+                        if (obj["exit"]?.ToString() == "0" && obj["out"] == null)
+                        {
+                            TerminalOutput = (string.IsNullOrWhiteSpace(obj["out"]?.ToString())
+                                ? "GCC Compiled Successfully."
+                                : obj["out"]?.ToString());
+                        }
+                        else
+                        {
+                            TerminalOutput = obj["err"]?.ToString() ?? string.Empty;
+                        }
+                    
+                    }
+                } else if (SelectedLanguage == "RISC-V")
+                {
+                    code = MathInterpreter.interpreter.riscvCompile(expression);
+                    CompilerOutput = code;
+                    TerminalOutput = string.Empty;
+                    fileExtension = ".s";
                 }
                 
                 InputExpression = string.Empty;
