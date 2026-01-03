@@ -29,8 +29,8 @@
             
             <Grid Grid.Column="0" Margin="10">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="1*"/>
                     <RowDefinition Height="8*"/>
+                    <RowDefinition Height="2*"/>
                 </Grid.RowDefinitions>
                 
                 <avalonEdit:TextEditor
@@ -40,6 +40,15 @@
                     IsReadOnly="True"
                     SyntaxHighlighting="C++"
                     local:AvalonEditBinding.BoundText="{Binding CompilerOutput}"
+                    Grid.Row="0"/>
+                
+                <avalonEdit:TextEditor
+                    x:Name="TerminalOutputObject"
+                    FontFamily="Consolas"
+                    FontSize="14"
+                    IsReadOnly="True"
+                    SyntaxHighlighting="PowerShell"
+                    local:AvalonEditBinding.BoundText="{Binding TerminalOutput}"
                     Grid.Row="1"/>
 
             </Grid>

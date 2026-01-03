@@ -774,7 +774,7 @@ module interpreter =
             printf "%A\n" ir
             raise (ParseException("Unknown IR token during flattening"))
         
-    let toJson(result: EvalResult) =
+    let toJson(result) =
         match result with
         | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
@@ -818,7 +818,7 @@ module interpreter =
     | ComplexVal (r, i) -> complexToString (r, i)
 
     let writeToFile (fileName : string, str : string) =
-        let path = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+        let path = Path.Combine(System.Environment.CurrentDirectory, "out")
         let result = System.IO.Directory.CreateDirectory(path)
         let path = Path.Combine(path, fileName)
         let file = File.Create(path)
@@ -851,6 +851,33 @@ module interpreter =
         let (tac, last) = flattenIRtoTAC ast
         let str = tacString tac
         str
+    
+    let gccCompile (workingDirectory : string) (src : string) (dest : string) =
+        let flags = "-Wall -lm"
+        
+        let psi =
+            ProcessStartInfo(
+                FileName = "gcc",
+                Arguments = $"{flags} {src} -o {dest}",
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            )
+        let proc = new Process()
+        proc.StartInfo <- psi
+        proc.Start() |> ignore
+        
+        let stdout = proc.StandardOutput.ReadToEnd()
+        let stderr = proc.StandardError.ReadToEnd()
+        
+        proc.WaitForExit()
+        
+        let json = JsonConvert.SerializeObject({| ``type`` = "compile"; exit = proc.ExitCode; out = stdout; err = stderr |})
+        
+        json
+        
             
     [<EntryPoint>]
     let main argv  =
