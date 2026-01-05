@@ -52,6 +52,7 @@ module interpreter =
         | TACCall of Operand * string * Operand list          // t := call func(args...)
         | TACLabel of string
         | TACIf of Operand * string                          // if x goto label
+        | TACIfCmp of Operand * string * Operand * string    // if x comp y goto label
         | TACEquiv of Operand * Operand * string * Operand     // t := x op y
         
     type EvalResult =
@@ -320,6 +321,7 @@ module interpreter =
             | TACBinary(dst, src1, _, src2) -> [dst; src1; src2]
             | TACEquiv(dst, src1, _, src2) -> [dst; src1; src2]
             | TACIf(x, _) -> [x]
+            | TACIfCmp(x, _, y, _) -> [x; y]
             | TACCall(dst, _, args) -> dst :: args
             | TACGoto _
             | TACLabel _ -> []
@@ -329,6 +331,16 @@ module interpreter =
             | OpImmInt _ | OpImmFloat _ -> false
             | _ -> true )
 
+    let isTerminator tac =
+        match tac with
+        | TACGoto _ | TACIf _ -> true
+        | _ -> false
+
+    let isLeader (i : int, tac : TAC) =
+        match (tac, i) with
+        | (_, 0) | (TACLabel _, _) -> true
+        | (_, _) -> false
+    
     let assignSlot(slotSize : int, operands : Operand list) =
         operands
             |> List.indexed
@@ -400,7 +412,13 @@ module interpreter =
                                     let reg = 0
                                     let stackOffset = slotOf(map, OpVar x)
                                     $"li t{reg}, {y} \nsw t{reg}, {stackOffset}(sp)"
+            | OpTemp x, OpTemp y ->
+                                    $"li t{x}, t{y}"
             | _ -> raise(GenerationException("Unknown assign format"))
+        | TACIfCmp (x, comp, y, label) ->
+            match comp with
+            | "<" -> $"blt {x}, {y}, {label}"
+            | _ -> raise(GenerationException("Unknown branch compare format"))
         | _ -> ""
         
     
@@ -821,7 +839,6 @@ module interpreter =
             let temp = assignTemp()
             argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
         | IfExpr(condExpr, thenExpr, elseExpr) ->
-            let (condCode, condTemp) = flattenIRtoTAC condExpr
             let thenLabel = newLabel "then"
             let elseLabel = newLabel "else"
             let endLabel  = newLabel "endif"
@@ -831,20 +848,42 @@ module interpreter =
                 | Some e -> flattenIRtoTAC e
                 | None -> ([], OpImmInt 0)
             let resultTemp = assignTemp()
-            let code =
-                condCode @
-                [ TACIf(condTemp, thenLabel)
-                  TACGoto elseLabel
-                  TACLabel thenLabel ] @
-                thenCode @
-                [ TACAssign(OpTemp resultTemp, thenTemp)
-                  TACGoto endLabel
-                  TACLabel elseLabel ] @
-                elseCode @
-                [ TACAssign(OpTemp resultTemp, elseTemp)
-                  TACLabel endLabel ]
+            
+            match condExpr with
+            | Eqiv(x, op, y) ->
+                let (codeL, l) = flattenIRtoTAC x
+                let (codeR, r) = flattenIRtoTAC y
+                
+                let code =
+                    codeL @ codeR @
+                    [ TACIfCmp(l, op, r, thenLabel)
+                      TACGoto elseLabel
+                      TACLabel thenLabel ] @
+                    thenCode @
+                    [ TACAssign(OpTemp resultTemp, thenTemp)
+                      TACGoto endLabel
+                      TACLabel elseLabel ] @
+                    elseCode @
+                    [ TACAssign(OpTemp resultTemp, elseTemp)
+                      TACLabel endLabel ]
 
-            code, OpTemp resultTemp
+                code, OpTemp resultTemp
+            | _ ->
+                let code =
+                    let (condCode, condTemp) = flattenIRtoTAC condExpr
+                    condCode @
+                    [ TACIf(condTemp, thenLabel)
+                      TACGoto elseLabel
+                      TACLabel thenLabel ] @
+                    thenCode @
+                    [ TACAssign(OpTemp resultTemp, thenTemp)
+                      TACGoto endLabel
+                      TACLabel elseLabel ] @
+                    elseCode @
+                    [ TACAssign(OpTemp resultTemp, elseTemp)
+                      TACLabel endLabel ]
+
+                code, OpTemp resultTemp
         | ForLoop(varName, startExpr, endExpr, bodyStatements) ->
             let (startCode, startTemp) = flattenIRtoTAC startExpr
             let (endCode, endTemp) = flattenIRtoTAC endExpr
@@ -1001,6 +1040,7 @@ module interpreter =
         let (_, ast) = parse tokens
         printfn "AST: %A" ast
         let (tac, last) = flattenIRtoTAC ast
+        printfn "TAC: %A" tac
         let str = tacCString tac
         str
     
@@ -1061,6 +1101,7 @@ module interpreter =
         printfn "Symbol Table: %A" symbTable
         
         // Test RISC-V Compiler
-        let compilerInput = "x = 5; y = 6; z = x + y;"
+        let compilerInput = "if(1 < 3) then {2+2;}"
         let compiled = riscvCompile(compilerInput)
+        printfn "%A" compiled
         0
