@@ -57,6 +57,14 @@ module interpreter =
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
+    
+    type BasicBlock =
+        {
+            id: int
+            instrs: TAC list
+            mutable succs: int list
+            mutable preds: int list
+        }
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
    
@@ -312,6 +320,37 @@ module interpreter =
                     |> List.map operandToString 
                     |> String.concat ","
         argList
+    let isRealOperand op =
+        match op with
+        | OpImmInt _
+        | OpImmFloat _ -> false
+        | _ -> true
+        
+    let collectDefs tacList : Operand list =
+        tacList |> List.collect ( function
+            | TACAssign (dst, _) -> [dst]
+            | TACUnary (dst, _, _) -> [dst]
+            | TACBinary (dst, _, _, _) -> [dst]
+            | TACEquiv (dst, _, _, _) -> [dst]
+            | TACCall (dst, _, _) -> [dst]
+            | _ -> []
+        )
+        |> List.filter isRealOperand
+        |> List.distinct
+        
+    let collectUses tacList : Operand list =
+        tacList |> List.collect (function
+            | TACAssign (_, src) -> [src]
+            | TACUnary (_, _, src) -> [src]
+            | TACBinary (_, src1, _, src2) -> [src1; src2]
+            | TACEquiv (_, src1, _, src2) -> [src1; src2]
+            | TACIf (x, _) -> [x]
+            | TACCall (_, _, args) -> args
+            | TACGoto _
+            | TACLabel _ -> []
+        )
+        |> List.filter isRealOperand
+        |> List.distinct
     
     let collectOperands tacList : Operand list =
         tacList |> List.collect ( function
@@ -326,10 +365,8 @@ module interpreter =
             | TACGoto _
             | TACLabel _ -> []
             )
+        |> List.filter isRealOperand
         |> List.distinct
-        |> List.filter ( function
-            | OpImmInt _ | OpImmFloat _ -> false
-            | _ -> true )
 
     let isTerminator tac =
         match tac with
@@ -355,7 +392,10 @@ module interpreter =
         
     let buildFrame tac =
         let operands = collectOperands tac
-        printf $"Operands: {operands}"
+        let defs = collectDefs tac
+        let uses = collectUses tac
+        printfn "Defs: %A" defs
+        printfn "Uses: %A" uses
         let map, frameSize = allocateStackSlots operands
         map, frameSize
     
@@ -425,7 +465,7 @@ module interpreter =
     
     let tacToString tac =
         match tac with
-        | TACAssign (x, y) -> $"{operandToString x} = {operandToString y}"
+        | TACAssign (x, y) -> $"{operandToString x} = {operandToString y};"
         | TACBinary (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
         | TACUnary (t, op, x) -> $"{operandToString t} = {op} {operandToString x};"
         | TACCall (t, funcName, args) -> $"{operandToString t} = {funcName}({(operandListToString args)});" // We need to differentiate void functions
@@ -776,29 +816,39 @@ module interpreter =
           
     let declareTemps tac =
         tempCounter <- 0
-        tac
-        |> List.choose (function
-            | TACAssign(OpTemp t, _)
-            | TACBinary(OpTemp t, _, _, _)
-            | TACEquiv(OpTemp t, _, _, _)
-            | TACUnary(OpTemp t, _, _)
-            | TACCall(OpTemp t, _, _) -> Some (OpTemp t)
-            | _ -> None
-        )
-        |> Set.ofList
-        |> Set.toList
-        |> List.map operandToCDecl
-        |> String.concat ", "
+        let allOperands = collectOperands tac
+        let temps = 
+            allOperands 
+            |> List.choose (function 
+                | OpTemp t -> Some t 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+            |> List.map (fun t -> $"t{t}")
+        let vars = 
+            allOperands 
+            |> List.choose (function 
+                | OpVar v -> Some v 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+            
+        let allDecls = temps @ vars
+        
+        if allDecls.IsEmpty then 
+            ""
+        else
+            allDecls
+            |> String.concat ", "
+            |> fun s -> $"{s};"
 
         
     let rec flattenIRtoTAC ir =
         match ir with
         | Int (IntVal value) ->
-            let t = assignTemp()
-            [TACAssign(OpTemp t, OpImmInt value)], OpTemp t
+            [], OpImmInt value
         | Int (FloatVal value) ->
-            let t = assignTemp()
-            [TACAssign(OpTemp t, OpImmFloat value)], OpTemp t
+            [], OpImmFloat value 
         | Var name ->
             [], OpVar name
         | Assign(varName, expr) ->
@@ -983,8 +1033,7 @@ module interpreter =
     | FloatVal f -> string f
     | ComplexVal (r, i) -> complexToString (r, i)
 
-    let writeToFile (fileName : string, str : string) =
-        let path = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+    let writeToFile (fileName : string, str : string, path : string) =
         let result = System.IO.Directory.CreateDirectory(path)
         let path = Path.Combine(path, fileName)
         let file = File.Create(path)
@@ -1078,20 +1127,20 @@ module interpreter =
         // Test For Loop
         let forTest = "x = sin(1); y = x; for(i = 1 to 5) do { x = x + i }"
         let forCompiled = cCompile(forTest)
-        writeToFile("for_test.c", forCompiled)
+        //writeToFile("for_test.c", forCompiled)
         printfn "%s" forCompiled
         
         // Test While Loop
         let whileTest = "x = 0; while(x < 5) do { x = x + 1 }"
         let whileCompiled = cCompile(whileTest)
-        writeToFile("while_test.c", whileCompiled)
+        //writeToFile("while_test.c", whileCompiled)
         printfn "%s" whileCompiled
             
         
         // Test if
-        let compilerInput = "x = 5; x = 6; if(x < 1) then { 2*2 }"
+        let compilerInput = "x = 5; y = 6; z = x+y; if(x < 1) then { 2*2 }"
         let compiled = cCompile(compilerInput)
-        writeToFile("if_test.c", compiled)
+        //writeToFile("if_test.c", compiled)
         printfn "Compiled successfully!"
         
         // Test evaluator

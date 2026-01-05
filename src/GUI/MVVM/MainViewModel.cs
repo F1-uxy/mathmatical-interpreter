@@ -407,11 +407,12 @@ namespace GUI
                     CompilerOutput = code;
                     fileExtension = ".c";
                     
-                    MathInterpreter.interpreter.writeToFile($"{fileName}{fileExtension}", code);
                     string path = AppContext.BaseDirectory;
+
+                    MathInterpreter.interpreter.writeToFile($"{fileName}{fileExtension}", code, $"{path}{_compilerOutputDir}");
                     string json = MathInterpreter.interpreter.gccCompile(path, 
-                        $"{_compilerOutputDir}{fileName}{fileExtension}", 
-                        $"{_compilerOutputDir}{fileName}");
+                        $"{path}{_compilerOutputDir}{fileName}{fileExtension}", 
+                        $"{path}{_compilerOutputDir}{fileName}");
                     JObject obj = JObject.Parse(json);
 
                     if (obj["type"]?.ToString() == "compile")
