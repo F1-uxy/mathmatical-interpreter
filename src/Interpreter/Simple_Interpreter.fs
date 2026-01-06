@@ -345,6 +345,7 @@ module interpreter =
             | TACBinary (_, src1, _, src2) -> [src1; src2]
             | TACEquiv (_, src1, _, src2) -> [src1; src2]
             | TACIf (x, _) -> [x]
+            | TACIfCmp (x, _, y, _) -> [x; y]
             | TACCall (_, _, args) -> args
             | TACGoto _
             | TACLabel _ -> []
@@ -419,47 +420,52 @@ module interpreter =
         
     let riscvPreamble frameSize =
         sprintf $"addi sp, sp, -{frameSize}"
+        
+    let branchInstruction comp =
+        match comp with
+        | "<" -> "blt"
+        | ">" -> "bgt"
+        | _ -> raise(GenerationException("Unknown comparison operator"))
+        
+    let loadOpToReg map targetReg op =
+        match op with
+        | OpImmInt i -> $"li {operandToString targetReg}, {operandToString op}"
+        | OpVar x -> $"lw {operandToString targetReg}, {slotOf(map, OpVar x)}(sp)"
+        | OpTemp t -> $"mv {operandToString targetReg}, {operandToString op}"
+        | _ -> raise(GenerationException("Tried to load unknown operand to register"))
 
     let tacToRisc (tac : TAC ) (map : Map<Operand, int>) =
         match tac with
-        | TACBinary (t, x, op, y) ->
-            match t, x, y with
-            | OpTemp t, OpVar x, OpImmInt y ->
-                                                let offset = slotOf(map, OpVar x)
-                                                $"addi t{t}, {offset}(sp), {y},"
-            | OpTemp t, OpTemp x, OpImmInt y -> $"addi t{t}, t{x}, {y},"
-            | OpTemp t, OpVar x, OpVar y ->
-                                            let xReg = 0
-                                            let yReg = 0
-                                            let xOffset = slotOf(map, OpVar x)
-                                            let yOffset = slotOf(map, OpVar y)
-                                            $"lw t{xReg}, {xOffset}(sp) \nlw t{yReg}, {yOffset}(sp) \nadd t{t}, t{xReg}, t{yReg}"
-            | OpTemp t, OpTemp x, OpTemp y -> $"add t{t}, t{x}, t{y}"
-            | _ -> raise(GenerationException("Unknown add format"))
-        | TACAssign (x, y) ->
-            match x, y with
-            | OpVar x, OpVar y ->
-                                    let t = 0
-                                    let xOffset = 0
-                                    let yOffset = 0
-                                    $"lw t{t}, {yOffset}($sp) \nsw t{t}, {xOffset}(sp)"
-            | OpVar x, OpTemp y ->
-                                    let offset = slotOf(map, OpVar x)
-                                    $"sw t{y}, {offset}(sp)"
-            | OpTemp x, OpImmInt y ->
-                                    $"li t{x}, {y}"
-            | OpVar x, OpImmInt y ->
-                                    let reg = 0
-                                    let stackOffset = slotOf(map, OpVar x)
-                                    $"li t{reg}, {y} \nsw t{reg}, {stackOffset}(sp)"
-            | OpTemp x, OpTemp y ->
-                                    $"li t{x}, t{y}"
-            | _ -> raise(GenerationException("Unknown assign format"))
+        | TACBinary (dst, x, op, y) ->
+            let xReg = OpTemp 0
+            let yReg = OpTemp 1
+            let xCode = loadOpToReg map xReg x
+            let yCode = loadOpToReg map yReg y
+            let instr =
+                        match op with
+                        | "+" -> "add"
+                        | "-" -> "sub"
+                        | _ -> raise(GenerationException("Unknown binary operation"))
+            $"{xCode}\n{yCode}\n{instr} {operandToString dst}, t0, t1"
+        | TACAssign (dst, src) ->
+            let srcReg = OpTemp 0
+            let srcCode = loadOpToReg map srcReg src
+            match dst with
+            | OpTemp t -> $"{srcCode}\nmv t{t}, {operandToString srcReg}"
+            | OpVar x -> $"{srcCode}\nsw {operandToString srcReg}, {slotOf(map, OpVar x)}(sp)"
+            | _ -> raise(GenerationException("Invalid assignment destination"))
         | TACIfCmp (x, comp, y, label) ->
-            match comp with
-            | "<" -> $"blt {x}, {y}, {label}"
-            | _ -> raise(GenerationException("Unknown branch compare format"))
-        | _ -> ""
+            let compOperation = branchInstruction comp
+            let xReg = OpTemp 0
+            let yReg = OpTemp 1
+            let xCode = loadOpToReg map xReg x
+            let yCode = loadOpToReg map yReg y
+            $"{xCode}\n{yCode}\n{compOperation} {operandToString xReg}, {operandToString yReg}, .{label}"
+        | TACGoto label ->
+            $"j {label}"
+        | TACLabel label ->
+            $"{label}:"
+        | _ -> "Haven't implemented"
         
     
     
@@ -1124,6 +1130,8 @@ module interpreter =
     let main argv  =
         Console.WriteLine("Simple Interpreter")
         
+        let devPath = $"{System.AppContext.BaseDirectory}/out/"
+        
         // Test For Loop
         let forTest = "x = sin(1); y = x; for(i = 1 to 5) do { x = x + i }"
         let forCompiled = cCompile(forTest)
@@ -1150,7 +1158,8 @@ module interpreter =
         printfn "Symbol Table: %A" symbTable
         
         // Test RISC-V Compiler
-        let compilerInput = "if(1 < 3) then {2+2;}"
+        let compilerInput = "y = 1 if(0 < 1) then { y=2 }"
         let compiled = riscvCompile(compilerInput)
+        writeToFile("dev_code.s", compiled, devPath)
         printfn "%A" compiled
         0
