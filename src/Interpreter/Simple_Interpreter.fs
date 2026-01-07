@@ -1102,7 +1102,7 @@ module interpreter =
         let body = tac
                     |> List.map tacToString
                     |> String.concat "\n"
-        $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
+        $"#include <math.h>\n#include <stdio.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
             
             
     let evaluate(expr: string) : NumericValue =
