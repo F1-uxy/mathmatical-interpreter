@@ -509,7 +509,7 @@ module interpreter =
     // <Prog>     ::= <S> <Progopt>                 // Fixed implementation
     // <Progopt>  ::= ";" <S> <Progopt> | <empty>
     // <S>        ::= Id "=" <Comp> | <Comp>
-    // <Comp>     ::= <E> | "==" <E> | "<" <E> | ">" <E>
+    // <Comp>     ::= <E> | <E> "==" <E> | <E> "<" <E> | <E> ">" <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <P> <Topt>
