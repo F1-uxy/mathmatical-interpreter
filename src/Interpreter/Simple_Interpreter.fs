@@ -53,6 +53,7 @@ module interpreter =
         | TACLabel of string
         | TACIf of Operand * string                          // if x goto label
         | TACEquiv of Operand * Operand * string * Operand     // t := x op y
+        | TACPrint of Operand
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
@@ -345,6 +346,7 @@ module interpreter =
             | TACEquiv (_, src1, _, src2) -> [src1; src2]
             | TACIf (x, _) -> [x]
             | TACCall (_, _, args) -> args
+            | TACPrint arg -> [arg]
             | TACGoto _
             | TACLabel _ -> []
         )
@@ -360,6 +362,7 @@ module interpreter =
             | TACEquiv(dst, src1, _, src2) -> [dst; src1; src2]
             | TACIf(x, _) -> [x]
             | TACCall(dst, _, args) -> dst :: args
+            | TACPrint arg -> [arg]
             | TACGoto _
             | TACLabel _ -> []
             )
@@ -443,7 +446,41 @@ module interpreter =
             | _ -> raise(GenerationException("Unknown assign format"))
         | _ -> ""
         
+    let mutable tempCounter = 0
+    let mutable labelCounter = 0
+    let mutable typeMap : Map<string, string> = Map.empty 
+        
+    let setType (operand: Operand) (typeName: string) =
+        match operand with
+        | OpVar name -> typeMap <- typeMap.Add(name, typeName)
+        | OpTemp t -> typeMap <- typeMap.Add($"t{t}", typeName)
+        | _ -> ()
+
+    let getType (operand: Operand) : string =
+        match operand with
+        | OpImmInt _ -> "int"
+        | OpImmFloat _ -> "double"
+        | OpVar name -> 
+            match typeMap.TryFind(name) with
+            | Some t -> t
+            | None -> "int"  // Default to int
+        | OpTemp t -> 
+            match typeMap.TryFind($"t{t}") with
+            | Some ty -> ty
+            | None -> "int"  // Default to int
+
+    let inferBinaryType (left: Operand) (right: Operand) : string =
+        let leftType = getType left
+        let rightType = getType right
+        if leftType = "double" || rightType = "double" then "double"
+        else "int"
+    let assignTemp() =
+        tempCounter <- tempCounter + 1
+        tempCounter
     
+    let newLabel(prefix: string) =
+        labelCounter <- labelCounter + 1
+        $"{prefix}_{labelCounter}"    
     
     let tacToString tac =
         match tac with
@@ -456,6 +493,10 @@ module interpreter =
         | TACIf (cond, label) -> $"if ({operandToString cond}) goto {label};"
         | TACGoto label -> $"goto {label};"
         | TACLabel label -> $"{label}:"
+        | TACPrint arg -> 
+            let argType = getType arg
+            let format = if argType = "double" then "%f" else "%d"
+            $"printf(\"{format}\\n\", {operandToString arg});"
         | _ -> ""
 
     let lexer input = 
@@ -785,41 +826,9 @@ module interpreter =
             let (rest, expr) = Program tList
             (rest, expr)
 
-    let mutable tempCounter = 0
-    let mutable labelCounter = 0
-    let mutable typeMap : Map<string, string> = Map.empty
 
-    let setType (operand: Operand) (typeName: string) =
-        match operand with
-        | OpVar name -> typeMap <- typeMap.Add(name, typeName)
-        | OpTemp t -> typeMap <- typeMap.Add($"t{t}", typeName)
-        | _ -> ()
 
-    let getType (operand: Operand) : string =
-        match operand with
-        | OpImmInt _ -> "int"
-        | OpImmFloat _ -> "double"
-        | OpVar name -> 
-            match typeMap.TryFind(name) with
-            | Some t -> t
-            | None -> "int"  // Default to int
-        | OpTemp t -> 
-            match typeMap.TryFind($"t{t}") with
-            | Some ty -> ty
-            | None -> "int"  // Default to int
 
-    let inferBinaryType (left: Operand) (right: Operand) : string =
-        let leftType = getType left
-        let rightType = getType right
-        if leftType = "double" || rightType = "double" then "double"
-        else "int"
-    let assignTemp() =
-        tempCounter <- tempCounter + 1
-        tempCounter
-    
-    let newLabel(prefix: string) =
-        labelCounter <- labelCounter + 1
-        $"{prefix}_{labelCounter}"
     
     let operandToCDecl = function
     | OpTemp t -> $"t{t}"
@@ -921,13 +930,20 @@ module interpreter =
             setType (OpTemp temp) "int"
             codeL @ codeR @ [TACEquiv(OpTemp temp, l, op, r)], OpTemp temp
         | FunCall(funcName, args) ->
-            let argTupleList = args |> List.map flattenIRtoTAC
-            let argList = argTupleList |> List.collect fst
-            let tempList = argTupleList |> List.map snd
-            let lastTemp = tempList |> List.last
-            let temp = assignTemp()
-            setType (OpTemp temp) "double"
-            argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
+            if funcName = "print" then
+                let argTupleList = args |> List.map flattenIRtoTAC
+                let argList = argTupleList |> List.collect fst
+                let tempList = argTupleList |> List.map snd
+                let printArg = tempList |> List.head
+                argList @ [TACPrint printArg], OpImmInt 0
+            else
+                let argTupleList = args |> List.map flattenIRtoTAC
+                let argList = argTupleList |> List.collect fst
+                let tempList = argTupleList |> List.map snd
+                let lastTemp = tempList |> List.last
+                let temp = assignTemp()
+                setType (OpTemp temp) "double"
+                argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
         | IfExpr(condExpr, thenExpr, elseExpr) ->
             let (condCode, condTemp) = flattenIRtoTAC condExpr
             let thenLabel = newLabel "then"
@@ -1167,7 +1183,7 @@ module interpreter =
             
         
         // Test if
-        let compilerInput = "x = 5; y = 6.3; z = x+y; if(x < 1) then { 2*2 }"
+        let compilerInput = "x = 5; y = 6.3; z = x+y; print(z); if(x < 1) then { 2*2 }"
         let compiled = cCompile(compilerInput)
         let outputPath = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
         writeToFile("if_test.c", compiled, outputPath)
