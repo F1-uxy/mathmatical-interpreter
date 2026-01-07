@@ -419,7 +419,7 @@ module interpreter =
         sprintf $"sw {register}, {offset}(s0)"
         
     let riscvPreamble frameSize =
-        sprintf $"addi sp, sp, -{frameSize}"
+        sprintf $"addi sp, sp, {frameSize}"
         
     let branchInstruction comp =
         match comp with
@@ -446,7 +446,7 @@ module interpreter =
                         | "+" -> "add"
                         | "-" -> "sub"
                         | _ -> raise(GenerationException("Unknown binary operation"))
-            $"{xCode}\n{yCode}\n{instr} {operandToString dst}, t0, t1"
+            $"{xCode}\n{yCode}\n{instr} {operandToString dst}, {operandToString xReg}, {operandToString yReg}"
         | TACAssign (dst, src) ->
             let srcReg = OpTemp 0
             let srcCode = loadOpToReg map srcReg src
@@ -462,9 +462,9 @@ module interpreter =
             let yCode = loadOpToReg map yReg y
             $"{xCode}\n{yCode}\n{compOperation} {operandToString xReg}, {operandToString yReg}, .{label}"
         | TACGoto label ->
-            $"j {label}"
+            $"j .{label}"
         | TACLabel label ->
-            $"{label}:"
+            $".{label}:"
         | _ -> "Haven't implemented"
         
     
@@ -1048,10 +1048,8 @@ module interpreter =
         do file.WriteAsync(ReadOnlyMemory bytes) |> ignore
         
         file.Close()
-        //File.Delete(path)
     
     let tacRISCVString (taclist : TAC list) (map : Map<Operand, int>)=
-        let header = riscvPreamble 
         let body =
             taclist
             |> List.map (fun tac -> tacToRisc tac map)
@@ -1158,7 +1156,7 @@ module interpreter =
         printfn "Symbol Table: %A" symbTable
         
         // Test RISC-V Compiler
-        let compilerInput = "y = 1 if(0 < 1) then { y=2 }"
+        let compilerInput = "y = 1; x = 2; if(y < x) then { y=2 }"
         let compiled = riscvCompile(compilerInput)
         writeToFile("dev_code.s", compiled, devPath)
         printfn "%A" compiled
