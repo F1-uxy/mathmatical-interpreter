@@ -787,6 +787,32 @@ module interpreter =
 
     let mutable tempCounter = 0
     let mutable labelCounter = 0
+    let mutable typeMap : Map<string, string> = Map.empty
+
+    let setType (operand: Operand) (typeName: string) =
+        match operand with
+        | OpVar name -> typeMap <- typeMap.Add(name, typeName)
+        | OpTemp t -> typeMap <- typeMap.Add($"t{t}", typeName)
+        | _ -> ()
+
+    let getType (operand: Operand) : string =
+        match operand with
+        | OpImmInt _ -> "int"
+        | OpImmFloat _ -> "double"
+        | OpVar name -> 
+            match typeMap.TryFind(name) with
+            | Some t -> t
+            | None -> "int"  // Default to int
+        | OpTemp t -> 
+            match typeMap.TryFind($"t{t}") with
+            | Some ty -> ty
+            | None -> "int"  // Default to int
+
+    let inferBinaryType (left: Operand) (right: Operand) : string =
+        let leftType = getType left
+        let rightType = getType right
+        if leftType = "double" || rightType = "double" then "double"
+        else "int"
     let assignTemp() =
         tempCounter <- tempCounter + 1
         tempCounter
@@ -805,11 +831,10 @@ module interpreter =
         let temps = 
             allOperands 
             |> List.choose (function 
-                | OpTemp t -> Some t 
+                | OpTemp t -> Some $"t{t}"
                 | _ -> None)
             |> List.distinct
             |> List.sort
-            |> List.map (fun t -> $"t{t}")
         let vars = 
             allOperands 
             |> List.choose (function 
@@ -817,16 +842,35 @@ module interpreter =
                 | _ -> None)
             |> List.distinct
             |> List.sort
-            
-        let allDecls = temps @ vars
-        
-        if allDecls.IsEmpty then 
-            ""
-        else
-            allDecls
-            |> String.concat ", "
-            |> fun s -> $"{s};"
 
+        let allNames = temps @ vars
+
+        let intVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "int" -> true
+                | Some "double" -> false
+                | None -> true
+            )
+        
+        let doubleVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "double" -> true
+                | _ -> false
+            )
+
+        let declarations = []
+        let declarations = 
+            if intVars.IsEmpty then declarations
+            else ("int " + String.concat ", " intVars + ";") :: declarations
+        let declarations = 
+            if doubleVars.IsEmpty then declarations
+            else ("double " + String.concat ", " doubleVars + ";") :: declarations
+
+        String.concat "\n" (List.rev declarations)
         
     let rec flattenIRtoTAC ir =
         match ir with
@@ -840,31 +884,41 @@ module interpreter =
             match expr with
             | Int (IntVal i) -> 
                 let op = OpImmInt i
+                setType (OpVar varName) "int"
                 [TACAssign(OpVar varName, op)], OpVar varName
             | Int (FloatVal f) ->
                 let op = OpImmFloat f
+                setType (OpVar varName) "double" 
                 [TACAssign(OpVar varName, op)], OpVar varName
             | _ ->
                 let (code, t) = flattenIRtoTAC expr
+                let exprType = getType t
+                setType (OpVar varName) exprType
                 code @ [TACAssign(OpVar varName, t)], OpVar varName
         | Unary(op, expr) ->
             let (code, t) = flattenIRtoTAC expr
             let temp = assignTemp()
+            let resultType = getType t
+            setType (OpTemp temp) resultType
             code @ [TACUnary(OpTemp temp, op, t)], OpTemp temp
         | Binary(x, op, y) ->
             let (codeL, l) = flattenIRtoTAC x
             let (codeR, r) = flattenIRtoTAC y
+            let resultType = inferBinaryType l r
             let temp = assignTemp()
+            setType (OpTemp temp) resultType
             codeL @ codeR @ [TACBinary(OpTemp temp, l, op, r)], OpTemp temp
         | Power(x, y) ->
             let (codeL, l) = flattenIRtoTAC x
             let (codeR, r) = flattenIRtoTAC y
             let temp = assignTemp()
+            setType (OpTemp temp) "double"
             codeL @ codeR @ [TACBinary(OpTemp temp, l ,"^", r)], OpTemp temp
         | Eqiv(x, op, y) ->
             let (codeL, l) = flattenIRtoTAC x
             let (codeR, r) = flattenIRtoTAC y
             let temp = assignTemp()
+            setType (OpTemp temp) "int"
             codeL @ codeR @ [TACEquiv(OpTemp temp, l, op, r)], OpTemp temp
         | FunCall(funcName, args) ->
             let argTupleList = args |> List.map flattenIRtoTAC
@@ -872,6 +926,7 @@ module interpreter =
             let tempList = argTupleList |> List.map snd
             let lastTemp = tempList |> List.last
             let temp = assignTemp()
+            setType (OpTemp temp) "double"
             argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
         | IfExpr(condExpr, thenExpr, elseExpr) ->
             let (condCode, condTemp) = flattenIRtoTAC condExpr
@@ -884,6 +939,8 @@ module interpreter =
                 | Some e -> flattenIRtoTAC e
                 | None -> ([], OpImmInt 0)
             let resultTemp = assignTemp()
+            let resultType = inferBinaryType thenTemp elseTemp
+            setType (OpTemp resultTemp) resultType            
             let code =
                 condCode @
                 [ TACIf(condTemp, thenLabel)
@@ -908,6 +965,11 @@ module interpreter =
             let condTemp = assignTemp()
             let incTemp = assignTemp()
             let resultTemp = assignTemp()
+            setType (OpVar varName) "int"
+            setType (OpTemp condTemp) "int"
+            setType (OpTemp incTemp) "int"
+            let bodyType = getType bodyTemp
+            setType (OpTemp resultTemp) bodyType
 
             let code =
                 startCode @                              
@@ -934,6 +996,9 @@ module interpreter =
             let (bodyCode, bodyTemp) = flattenIRtoTAC bodyProg
             let resultTemp = assignTemp()
             let notTemp = assignTemp()
+            setType (OpTemp notTemp) "int"
+            let bodyType = getType bodyTemp
+            setType (OpTemp resultTemp) bodyType
             let code =
                 [TACLabel loopStart] @                   
                 condCode @                               
@@ -1021,7 +1086,7 @@ module interpreter =
         let body = tac
                     |> List.map tacToString
                     |> String.concat "\n"
-        $"#include <math.h>\nint main(){{\nint {tempDecs}\n\n{body}\nreturn 0;\n}}"
+        $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
             
             
     let evaluate(expr: string) : NumericValue =
@@ -1048,6 +1113,7 @@ module interpreter =
         
     
     let cCompile(expr: string) : string =
+        typeMap <- Map.empty 
         let tokens = lexer expr
         printfn "Tokens: %A" tokens
         let (_, ast) = parse tokens
@@ -1101,9 +1167,10 @@ module interpreter =
             
         
         // Test if
-        let compilerInput = "x = 5; y = 6; z = x+y; if(x < 1) then { 2*2 }"
+        let compilerInput = "x = 5; y = 6.3; z = x+y; if(x < 1) then { 2*2 }"
         let compiled = cCompile(compilerInput)
-        //writeToFile("if_test.c", compiled)
+        let outputPath = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+        writeToFile("if_test.c", compiled, outputPath)
         printfn "Compiled successfully!"
         
         // Test evaluator
