@@ -568,7 +568,10 @@ module interpreter =
     // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
     // <P>        ::= <F> <Popt>
     // <Popt>     ::= "^" <P> | <empty>
-    // <F>         ::= <IfStmt> | <ForLoop> | <WhileLoop> | <NR> | <FCall> 
+    // <F>         ::= <FuncDef> | <IfStmt> | <ForLoop> | <WhileLoop> | <NR> | <FCall>
+    // <FuncDef>   ::= "func" Id "(" <Params> ")" "{" <Prog> "}"
+    // <Params>    ::= Id <ParamList> | <empty>
+    // <ParamList> ::= "," Id <ParamList> | <empty> 
     // <IfStmt>    ::= "if" "(" <Comp> ")" "then" "{" <Prog> "}" ("else" "{" <Prog> "}")?
     // <ForLoop>   ::= "for" "(" Id "=" <Comp> "to" <Comp> ")" "do" "{" <Prog> "}"
     // <WhileLoop> ::= "while" "(" <Comp> ")" "do" "{" <Prog> "}"
