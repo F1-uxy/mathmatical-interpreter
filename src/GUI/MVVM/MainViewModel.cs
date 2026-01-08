@@ -23,6 +23,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using MathInterpreter;
 using GUI.MVVM;
+using MathGUI.MVVM;
 using OxyPlot.Axes;
 
 namespace GUI
@@ -31,6 +32,8 @@ namespace GUI
     {
         
         private readonly WindowService _windowService =  new WindowService();
+        private readonly ICompilerService _compiler = new CompilerService();
+        
         // Status TextBlock
         private string _statusMessage = string.Empty;
         private string _currentExpression = string.Empty;
@@ -399,49 +402,30 @@ namespace GUI
         {
             string expression = _inputExpression.ToString();
             if (expression == string.Empty) return;
-            
+
             try
             {
-                const string fileName = "user_code";
-                string fileExtension = string.Empty;
-                string code = string.Empty;
+                CompilerResult result;
                 
                 if (SelectedLanguage == "C")
                 {
-                    code = MathInterpreter.interpreter.cCompile(expression);
-                    CompilerOutput = code;
-                    fileExtension = ".c";
-                    
-                    string path = AppContext.BaseDirectory;
-
-                    MathInterpreter.interpreter.writeToFile($"{fileName}{fileExtension}", code, $"{path}{_compilerOutputDir}");
-                    string json = MathInterpreter.interpreter.gccCompile(path, 
-                        $"{path}{_compilerOutputDir}{fileName}{fileExtension}", 
-                        $"{path}{_compilerOutputDir}{fileName}");
-                    JObject obj = JObject.Parse(json);
-
-                    if (obj["type"]?.ToString() == "compile")
-                    {
-                        if (obj["exit"]?.ToString() == "0" && obj["out"] == null)
-                        {
-                            TerminalOutput = (string.IsNullOrWhiteSpace(obj["out"]?.ToString())
-                                ? "GCC Compiled Successfully."
-                                : obj["out"]?.ToString());
-                        }
-                        else
-                        {
-                            TerminalOutput = obj["err"]?.ToString() ?? string.Empty;
-                        }
-                    
-                    }
+                    result = _compiler.CompileC(expression);
                 } else if (SelectedLanguage == "RISC-V")
                 {
-                    code = MathInterpreter.interpreter.riscvCompile(expression);
-                    CompilerOutput = code;
-                    TerminalOutput = string.Empty;
-                    fileExtension = ".s";
+                    result = _compiler.CompileRiscV(expression);
                 }
+                else return;
                 
+                CompilerOutput = result.GeneratedCode;
+                Console.WriteLine(result.StdErr);
+                TerminalOutput = result.Success
+                    ? (string.IsNullOrWhiteSpace(result.StdErr)
+                        ? (string.IsNullOrWhiteSpace(result.StdOut)
+                            ? "Compiled successfully."
+                            : result.StdOut)
+                        : result.StdErr)
+                    : "Compilation failed.";
+
                 InputExpression = string.Empty;
                 UpdateSymbolTable();
             }
@@ -458,6 +442,10 @@ namespace GUI
                 AppendExceptionToConsole(e);
             }
             catch (MathInterpreter.Exceptions.FunctionArgsException e)
+            {
+                AppendExceptionToConsole(e);
+            }
+            catch (MathInterpreter.Exceptions.GenerationException e)
             {
                 AppendExceptionToConsole(e);
             }
