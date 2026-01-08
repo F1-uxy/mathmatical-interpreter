@@ -247,7 +247,10 @@ module interpreter =
         | c :: tail when isdigit c -> scInt(tail, 10*iVal+(intVal c))
         | _ -> (iStr, Num (IntVal iVal))
         
-    
+    let printValue = function
+        | IntVal x -> string x
+        | FloatVal f -> string f
+        | ComplexVal (r, i) -> complexToString (r, i)
     let rec scId(input, acc) =
         match input with
         | c :: tail when isid c -> scId (tail, acc + string c)
@@ -306,6 +309,12 @@ module interpreter =
                 | [ComplexVal (r, i)] -> ComplexVal (r, -i)
                 | [x] -> x
                 | _ -> raise (FunctionArgsException("conjugate takes 1 argument")))
+            "print", (fun args -> 
+                match args with
+                | [x] -> 
+                    printfn "%s" (printValue x)  // Prints to console
+                    IntVal 0  // Return 0 (like void in C)
+                | _ -> raise (FunctionArgsException("print takes 1 argument")))
         ]
   
     let operandToString operand =
@@ -1073,10 +1082,10 @@ module interpreter =
         | [] -> Console.Write("EOL\n")
                 []
                 
-    let printValue = function
-    | IntVal x -> string x
-    | FloatVal f -> string f
-    | ComplexVal (r, i) -> complexToString (r, i)
+//    let printValue = function
+//    | IntVal x -> string x
+//    | FloatVal f -> string f
+//    | ComplexVal (r, i) -> complexToString (r, i)
 
     let writeToFile (fileName : string, str : string, path : string) =
         let result = System.IO.Directory.CreateDirectory(path)
@@ -1190,7 +1199,7 @@ module interpreter =
         printfn "Compiled successfully!"
         
         // Test evaluator
-        let evalInput = "5 + 3 * 2"
+        let evalInput = "5 + 3 * 2; print(2+2222)"
         let result = evaluate evalInput
         printfn "Result: %A" result
         printfn "Symbol Table: %A" symbTable
