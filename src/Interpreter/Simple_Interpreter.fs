@@ -994,9 +994,18 @@ module interpreter =
                 let argTupleList = args |> List.map flattenIRtoTAC
                 let argList = argTupleList |> List.collect fst
                 let tempList = argTupleList |> List.map snd
-                let lastTemp = tempList |> List.last
                 let temp = assignTemp()
-                setType (OpTemp temp) "double"
+                match userFunctions.TryFind(funcName) with
+                | Some (parameters, body) ->
+                    let bodyProg = Prog(body)
+                    let savedTypeMap = typeMap
+                    typeMap <- Map.empty
+                    let (_, lastOperand) = flattenIRtoTAC bodyProg
+                    let returnType = getType lastOperand
+                    typeMap <- savedTypeMap
+                    setType (OpTemp temp) returnType
+                | None ->
+                    setType (OpTemp temp) "double"
                 argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
         | IfExpr(condExpr, thenExpr, elseExpr) ->
             let (condCode, condTemp) = flattenIRtoTAC condExpr
