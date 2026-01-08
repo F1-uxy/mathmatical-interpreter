@@ -556,9 +556,7 @@ module interpreter =
         Console.ReadLine()
 
     // Grammar in BNF:
-    // <Prog>     ::= <S> (";" <S>)*                // Current implementation
-
-    // <Prog>     ::= <S> <Progopt>                 // Fixed implementation
+    // <Prog>     ::= <S> <Progopt>
     // <Progopt>  ::= ";" <S> <Progopt> | <empty>
     // <S>        ::= Id "=" <Comp> | <Comp>
     // <Comp>     ::= <E> | <E> "==" <E> | <E> "<" <E> | <E> ">" <E>
