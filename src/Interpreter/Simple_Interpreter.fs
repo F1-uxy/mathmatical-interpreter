@@ -58,14 +58,14 @@ module interpreter =
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
     
-    type BasicBlock =
+    type InstrID = int
+    
+    type Liveness =
         {
-            id: int
-            instrs: TAC list
-            mutable succs: int list
-            mutable preds: int list
+            In : Set<Operand>
+            Out : Set<Operand>
         }
-
+        
     let mutable symbTable : Map<string, NumericValue> = Map.empty
    
     let tempRegs = [ "$t0"; "$t1"; "$t2"; "$t3"; "$t4"; "$t5"; "$t6"; "$t7"; "$t8"; "$t9"]
@@ -368,7 +368,124 @@ module interpreter =
             )
         |> List.filter isRealOperand
         |> List.distinct
+    
+    let uses tac =
+        match tac with
+        | TACAssign (_, src) -> [src]
+        | TACUnary (_, _, src) -> [src]
+        | TACBinary (_, src1, _, src2) -> [src1; src2]
+        | TACEquiv (_, src1, _, src2) -> [src1; src2]
+        | TACIf (x, _) -> [x]
+        | TACIfCmp (x, _, y, _) -> [x; y]
+        | TACCall (_, _, args) -> args
+        | TACGoto _
+        | TACLabel _ -> []
 
+    let defs tac =
+        match tac with
+        | TACAssign (dst, _) -> [dst]
+        | TACUnary (dst, _, _) -> [dst]
+        | TACBinary (dst, _, _, _) -> [dst]
+        | TACEquiv (dst, _, _, _) -> [dst]
+        | TACCall (dst, _, _) -> [dst]
+        | _ -> []
+       
+    let enumerateTACList tac =
+        tac |> List.mapi( fun i x -> i, x) |> Map.ofList 
+    
+    let useMap enumTac =
+        enumTac |> Map.map (fun _ tac -> uses tac |> List.filter isRealOperand |> Set.ofList)
+
+    let defMap enumTac =
+        enumTac |> Map.map (fun _ tac -> defs tac |> List.filter isRealOperand |> Set.ofList)
+    
+    let livenessStep (live : Map<int,Liveness>) 
+                 (enumTac : Map<int,TAC>) 
+                 (successors : int -> int list) 
+                 (uses : Map<int, Set<Operand>>) 
+                 (defs : Map<int, Set<Operand>>) =
+        enumTac
+        |> Map.fold (fun acc id _ ->
+            let outSet =
+                successors id
+                |> List.collect (fun s -> live.[s].In |> Set.toList)
+                |> Set.ofList
+
+            let inSet =
+                Set.union uses.[id] (Set.difference outSet defs.[id])
+
+            acc |> Map.add id { In = inSet; Out = outSet }
+        ) Map.empty
+    
+    let calcLiveness tac =
+        let enumTac = enumerateTACList tac
+        let uses = useMap enumTac
+        let defs = defMap enumTac
+        let successors id =
+            if Map.containsKey (id + 1) enumTac then [id + 1] else []
+        let emptyLive =
+            enumTac |> Map.map (fun _ _ -> { In = Set.empty; Out = Set.empty })
+
+        let rec fix live =
+            let live' = livenessStep live enumTac successors uses defs
+            if live' = live then live
+            else fix live'
+
+        fix emptyLive
+    
+    let computeLiveRanges (liveMap : Map<int,Liveness>) =
+        liveMap
+        |> Map.fold (fun acc instr {In = inSet; Out = outSet} ->
+            let temps =
+                Set.union inSet outSet
+                |> Set.fold (fun s op ->
+                    match op with
+                    | OpTemp n -> Set.add n s
+                    | _ -> s
+                ) Set.empty
+
+            temps |> Set.fold (fun a t ->
+                let (startI, endI) = Map.tryFind t a |> Option.defaultValue (instr, instr)
+                Map.add t (min startI instr, max endI instr) a
+            ) acc
+        ) Map.empty
+    
+    let linearScanAllocate (liveRanges : Map<int, int*int>) numRegs =
+        let sortedTemps =
+            liveRanges
+            |> Map.toList
+            |> List.sortBy (fun (_, (start,_)) -> start)
+
+        let rec scan temps active freeRegs regMap =
+            match temps with
+            | [] -> regMap
+            | (t, (start, finish)) :: rest ->
+                let (active', freeRegs') =
+                    active
+                    |> List.fold (fun (act, free) (tempA, endA) ->
+                        if endA < start then
+                            let free = 
+                                match Map.tryFind tempA regMap with
+                                | Some r when r >= 0 -> Set.add r free
+                                | _ -> free
+                            (act, free)
+                        else
+                            (act @ [(tempA, endA)], free)
+                    ) ([], freeRegs)
+
+                match Seq.tryHead (Set.toSeq freeRegs') with
+                | Some r ->
+                    let regMap' = Map.add t r regMap
+                    let active'' = active' @ [(t, finish)]
+                    let freeRegs'' = Set.remove r freeRegs'
+                    scan rest active'' freeRegs'' regMap'
+                | None ->
+                    let regMap' = Map.add t -1 regMap
+                    let active'' = active' @ [(t, finish)]
+                    scan rest active'' freeRegs' regMap'
+
+        scan sortedTemps [] (Set.ofSeq {0..numRegs-1}) Map.empty
+            
     let isTerminator tac =
         match tac with
         | TACGoto _ | TACIf _ -> true
@@ -393,10 +510,6 @@ module interpreter =
         
     let buildFrame tac =
         let operands = collectOperands tac
-        let defs = collectDefs tac
-        let uses = collectUses tac
-        printfn "Defs: %A" defs
-        printfn "Uses: %A" uses
         let map, frameSize = allocateStackSlots operands
         map, frameSize
     
@@ -427,18 +540,26 @@ module interpreter =
         | ">" -> "bgt"
         | _ -> raise(GenerationException("Unknown comparison operator"))
         
-    let loadOpToReg map targetReg op =
+    let loadOpToReg (regMap : Map<Operand,int>) (regOperand: Operand) (op: Operand) : string =
         match op with
-        | OpImmInt i -> $"li {operandToString targetReg}, {operandToString op}"
-        | OpVar x -> $"lw {operandToString targetReg}, {slotOf(map, OpVar x)}(sp)"
-        | OpTemp t -> $"mv {operandToString targetReg}, {operandToString op}"
-        | _ -> raise(GenerationException("Tried to load unknown operand to register"))
-
+        | OpTemp t ->
+            let r = Map.find (OpTemp t) regMap
+            if r >= 0 then
+                ""
+            else
+                $"lw t{t}, {slotOf(regMap, OpTemp t)}(sp)"
+        | OpVar x ->
+            $"lw {operandToString regOperand}, {slotOf(regMap, OpVar x)}(sp)"
+        | OpImmInt i ->
+            $"li {operandToString regOperand}, {i}"
+        | OpImmFloat f ->
+            $"li {operandToString regOperand}, {f}"
     let tacToRisc (tac : TAC ) (map : Map<Operand, int>) =
         match tac with
         | TACBinary (dst, x, op, y) ->
             let xReg = OpTemp 0
-            let yReg = OpTemp 1
+            let yReg = OpTemp 0
+
             let xCode = loadOpToReg map xReg x
             let yCode = loadOpToReg map yReg y
             let instr =
@@ -1077,7 +1198,24 @@ module interpreter =
         let (_, ast) = parse tokens
         printfn "AST: %A" ast
         let (tac, last) = flattenIRtoTAC ast
+        let tacList = [
+            TACAssign (OpVar "a", OpImmInt 1)            // 0
+            TACAssign (OpVar "b", OpImmInt 2)            // 1
+            TACBinary (OpTemp 1, OpVar "a", "+", OpImmInt 1)  // 2  t1 = a + 1
+            TACBinary (OpTemp 2, OpVar "b", "+", OpImmInt 2)  // 3  t2 = b + 2
+            TACBinary (OpTemp 3, OpTemp 1, "+", OpTemp 2)     // 4  t3 = t1 + t2
+            TACAssign (OpVar "c", OpTemp 3)              // 5
+            TACBinary (OpTemp 4, OpTemp 1, "+", OpImmInt 5)   // 6  t4 = t1 + 5
+            TACAssign (OpVar "d", OpTemp 4)              // 7
+        ]
+        let liveMap = calcLiveness tacList
+        let ranges = computeLiveRanges liveMap
+        let numRegs = 7 // Save 3 as scratch registers
+        let regAssignments = linearScanAllocate ranges numRegs
         printfn "TAC: %A" tac
+        printfn "Live Map: %A" liveMap
+        printfn "Live Ranges: %A" ranges
+        printfn "Reg Assignments: %A" regAssignments
         let map, frameSize = buildFrame tac
         printfn "Map: %A" map
         printfn "Frame Size: %A" frameSize
@@ -1156,7 +1294,7 @@ module interpreter =
         printfn "Symbol Table: %A" symbTable
         
         // Test RISC-V Compiler
-        let compilerInput = "y = 1; x = 2; if(y < x) then { y=2 }"
+        let compilerInput = "y = 1; x = 2; x = x + 1; z = x + y;"
         let compiled = riscvCompile(compilerInput)
         writeToFile("dev_code.s", compiled, devPath)
         printfn "%A" compiled
