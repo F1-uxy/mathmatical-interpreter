@@ -624,9 +624,9 @@ module interpreter =
             | Some f -> f argVals
             | None ->
                 match userFunctions.TryFind(name) with
-                | Some (params, body) ->
+                | Some (parameters, body) ->
                     let savedSymbTable = symbTable
-                    params 
+                    parameters 
                     |> List.zip argVals
                     |> List.iter (fun (value, paramName) ->
                         symbTable <- symbTable.Add(paramName, value))
@@ -791,12 +791,12 @@ module interpreter =
                         ([paramName], rest)
                     | _ -> raise (ParseException "Expected parameter name or ')'")
                 
-                let (params, afterParams) = parseParams tail
+                let (parameters, afterParams) = parseParams tail
                 
                 match afterParams with
                 | Lcurl :: bodyTokens ->
                     let (restAfterBody, bodyExpr) = parseBlock bodyTokens
-                    (restAfterBody, FuncDef(funcName, params, 
+                    (restAfterBody, FuncDef(funcName, parameters, 
                         match bodyExpr with 
                         | Prog stmts -> stmts 
                         | _ -> [bodyExpr]))
@@ -1088,7 +1088,7 @@ module interpreter =
         | Return expr ->
             flattenIRtoTAC expr
         
-        | FuncDef(name, params, body) ->
+        | FuncDef(name, parameters, body) ->
             [], OpImmInt 0
         | _ ->
             printf "%A\n" ir
@@ -1163,11 +1163,55 @@ module interpreter =
                     |> String.concat "\n"
         $"#include <math.h>\n#include <stdio.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
             
-    let userFuncToCString (funcName: string) (params: string list) (body: Expr list) : string =
+    let userFuncToCString (funcName: string) (parameters: string list) (body: Expr list) : string =
         let bodyProg = Prog(body)
         let (tac, lastOperand) = flattenIRtoTAC bodyProg
+
+        let allOperands = collectOperands tac
+        let temps = 
+            allOperands 
+            |> List.choose (function 
+                | OpTemp t -> Some $"t{t}"
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+        let vars = 
+            allOperands 
+            |> List.choose (function 
+                | OpVar v -> Some v 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+            |> List.filter (fun v -> not (List.contains v parameters))
+
+        let allNames = temps @ vars
+
+        let intVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "int" -> true
+                | Some "double" -> false
+                | None -> true
+            )
         
-        let tempDecs = declareTemps tac
+        let doubleVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "double" -> true
+                | _ -> false
+            )
+
+        let tempDecs = 
+            let declarations = []
+            let declarations = 
+                if intVars.IsEmpty then declarations
+                else ("int " + String.concat ", " intVars + ";") :: declarations
+            let declarations = 
+                if doubleVars.IsEmpty then declarations
+                else ("double " + String.concat ", " doubleVars + ";") :: declarations
+            String.concat "\n" (List.rev declarations)
         
         let bodyCode = tac
                        |> List.map tacToString
@@ -1176,7 +1220,7 @@ module interpreter =
         let returnType = getType lastOperand
         
         let paramDecls = 
-            params 
+            parameters 
             |> List.map (fun p ->
                 match typeMap.TryFind(p) with
                 | Some "double" -> $"double {p}"
@@ -1184,7 +1228,7 @@ module interpreter =
             |> String.concat ", "
         
         $"{returnType} {funcName}({paramDecls}) {{\n{tempDecs}\n\n{bodyCode}\nreturn {operandToString lastOperand};\n}}\n"
-
+        
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (_, ast) = parse tokens
@@ -1221,8 +1265,8 @@ module interpreter =
             match expr with
             | Prog stmts ->
                 stmts |> List.iter collectFunctions
-            | FuncDef(name, params, body) ->
-                userFunctions <- userFunctions.Add(name, (params, body))
+            | FuncDef(name, parameters, body) ->
+                userFunctions <- userFunctions.Add(name, (parameters, body))
             | _ -> ()
         
         collectFunctions ast
@@ -1230,11 +1274,11 @@ module interpreter =
         let userFuncCode =
             userFunctions
             |> Map.toList
-            |> List.map (fun (name, (params, body)) ->
+            |> List.map (fun (name, (parameters, body)) ->
                 typeMap <- Map.empty
-                userFuncToCString name params body)
+                userFuncToCString name parameters body)
             |> String.concat "\n"
-        
+            
         let rec filterFuncDefs expr =
             match expr with
             | Prog stmts ->
