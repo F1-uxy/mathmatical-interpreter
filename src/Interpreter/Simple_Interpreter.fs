@@ -37,6 +37,8 @@ module interpreter =
         | ForLoop of string * Expr * Expr * Expr list
         | WhileLoop of Expr * Expr list
         | Prog of Expr list
+        | FuncDef of string * string list * Expr list
+        | Return of Expr
     
     type Operand =
         | OpImmInt of int
@@ -53,6 +55,7 @@ module interpreter =
         | TACLabel of string
         | TACIf of Operand * string                          // if x goto label
         | TACEquiv of Operand * Operand * string * Operand     // t := x op y
+        | TACPrint of Operand
         
     type EvalResult =
         Number of NumericValue | Plot of X: float[] * Y: float[]
@@ -66,7 +69,7 @@ module interpreter =
         }
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
-   
+    let mutable userFunctions : Map<string, (string list * Expr list)> = Map.empty
     let tempRegs = [ "$t0"; "$t1"; "$t2"; "$t3"; "$t4"; "$t5"; "$t6"; "$t7"; "$t8"; "$t9"]
     let mutable freeRegs = tempRegs
     let tempMap = Dictionary<int, string>()
@@ -246,7 +249,10 @@ module interpreter =
         | c :: tail when isdigit c -> scInt(tail, 10*iVal+(intVal c))
         | _ -> (iStr, Num (IntVal iVal))
         
-    
+    let printValue = function
+        | IntVal x -> string x
+        | FloatVal f -> string f
+        | ComplexVal (r, i) -> complexToString (r, i)
     let rec scId(input, acc) =
         match input with
         | c :: tail when isid c -> scId (tail, acc + string c)
@@ -305,6 +311,12 @@ module interpreter =
                 | [ComplexVal (r, i)] -> ComplexVal (r, -i)
                 | [x] -> x
                 | _ -> raise (FunctionArgsException("conjugate takes 1 argument")))
+            "print", (fun args -> 
+                match args with
+                | [x] -> 
+                    printfn "%s" (printValue x)  // Prints to console
+                    IntVal 0  // Return 0 (like void in C)
+                | _ -> raise (FunctionArgsException("print takes 1 argument")))
         ]
   
     let operandToString operand =
@@ -345,6 +357,7 @@ module interpreter =
             | TACEquiv (_, src1, _, src2) -> [src1; src2]
             | TACIf (x, _) -> [x]
             | TACCall (_, _, args) -> args
+            | TACPrint arg -> [arg]
             | TACGoto _
             | TACLabel _ -> []
         )
@@ -360,6 +373,7 @@ module interpreter =
             | TACEquiv(dst, src1, _, src2) -> [dst; src1; src2]
             | TACIf(x, _) -> [x]
             | TACCall(dst, _, args) -> dst :: args
+            | TACPrint arg -> [arg]
             | TACGoto _
             | TACLabel _ -> []
             )
@@ -443,7 +457,41 @@ module interpreter =
             | _ -> raise(GenerationException("Unknown assign format"))
         | _ -> ""
         
+    let mutable tempCounter = 0
+    let mutable labelCounter = 0
+    let mutable typeMap : Map<string, string> = Map.empty 
+        
+    let setType (operand: Operand) (typeName: string) =
+        match operand with
+        | OpVar name -> typeMap <- typeMap.Add(name, typeName)
+        | OpTemp t -> typeMap <- typeMap.Add($"t{t}", typeName)
+        | _ -> ()
+
+    let getType (operand: Operand) : string =
+        match operand with
+        | OpImmInt _ -> "int"
+        | OpImmFloat _ -> "double"
+        | OpVar name -> 
+            match typeMap.TryFind(name) with
+            | Some t -> t
+            | None -> "int"  // Default to int
+        | OpTemp t -> 
+            match typeMap.TryFind($"t{t}") with
+            | Some ty -> ty
+            | None -> "int"  // Default to int
+
+    let inferBinaryType (left: Operand) (right: Operand) : string =
+        let leftType = getType left
+        let rightType = getType right
+        if leftType = "double" || rightType = "double" then "double"
+        else "int"
+    let assignTemp() =
+        tempCounter <- tempCounter + 1
+        tempCounter
     
+    let newLabel(prefix: string) =
+        labelCounter <- labelCounter + 1
+        $"{prefix}_{labelCounter}"    
     
     let tacToString tac =
         match tac with
@@ -456,6 +504,10 @@ module interpreter =
         | TACIf (cond, label) -> $"if ({operandToString cond}) goto {label};"
         | TACGoto label -> $"goto {label};"
         | TACLabel label -> $"{label}:"
+        | TACPrint arg -> 
+            let argType = getType arg
+            let format = if argType = "double" then "%f" else "%d"
+            $"printf(\"{format}\\n\", {operandToString arg});"
         | _ -> ""
 
     let lexer input = 
@@ -516,7 +568,10 @@ module interpreter =
     // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
     // <P>        ::= <F> <Popt>
     // <Popt>     ::= "^" <P> | <empty>
-    // <F>         ::= <IfStmt> | <ForLoop> | <WhileLoop> | <NR> | <FCall> 
+    // <F>         ::= <FuncDef> | <IfStmt> | <ForLoop> | <WhileLoop> | <NR> | <FCall>
+    // <FuncDef>   ::= "func" Id "(" <Params> ")" "{" <Prog> "}"
+    // <Params>    ::= Id <ParamList> | <empty>
+    // <ParamList> ::= "," Id <ParamList> | <empty> 
     // <IfStmt>    ::= "if" "(" <Comp> ")" "then" "{" <Prog> "}" ("else" "{" <Prog> "}")?
     // <ForLoop>   ::= "for" "(" Id "=" <Comp> "to" <Comp> ")" "do" "{" <Prog> "}"
     // <WhileLoop> ::= "while" "(" <Comp> ")" "do" "{" <Prog> "}"
@@ -570,7 +625,26 @@ module interpreter =
             let argVals = args |> List.map astEvaluate
             match knownFunctions.TryFind(name) with
             | Some f -> f argVals
-            | None -> raise (ParseException($"Unknown function: { name }"))
+            | None ->
+                match userFunctions.TryFind(name) with
+                | Some (parameters, body) ->
+                    let savedSymbTable = symbTable
+                    parameters 
+                    |> List.zip argVals
+                    |> List.iter (fun (value, paramName) ->
+                        symbTable <- symbTable.Add(paramName, value))
+                    
+                    let mutable returnValue = IntVal 0
+                    for stmt in body do
+                        match stmt with
+                        | Return expr -> 
+                            returnValue <- astEvaluate expr
+                        | _ -> 
+                            astEvaluate stmt |> ignore
+                    symbTable <- savedSymbTable
+                    returnValue
+                
+                | None -> raise (ParseException($"Unknown function: {name}"))
         | IfExpr(expr1, expr2, exprOption) ->
             let isTrue =
                 match astEvaluate expr1 with
@@ -632,6 +706,9 @@ module interpreter =
             
         and S tList =
             match tList with
+            | Id "return" :: tail ->
+                let (rest, expr) = Comp tail
+                (rest, Return expr)
             | Id name :: Eq :: tail ->
                 let (rest, expr) = Comp tail
                 (rest, Assign(name, expr))
@@ -706,6 +783,27 @@ module interpreter =
                 loop [] tokens
             
             match tList with
+            | Id "func" :: Id funcName :: Lpar :: tail ->
+                let rec parseParams tokens =
+                    match tokens with
+                    | Rpar :: rest -> ([], rest)
+                    | Id paramName :: Comma :: rest ->
+                        let (moreParams, finalRest) = parseParams rest
+                        (paramName :: moreParams, finalRest)
+                    | Id paramName :: Rpar :: rest ->
+                        ([paramName], rest)
+                    | _ -> raise (ParseException "Expected parameter name or ')'")
+                
+                let (parameters, afterParams) = parseParams tail
+                
+                match afterParams with
+                | Lcurl :: bodyTokens ->
+                    let (restAfterBody, bodyExpr) = parseBlock bodyTokens
+                    (restAfterBody, FuncDef(funcName, parameters, 
+                        match bodyExpr with 
+                        | Prog stmts -> stmts 
+                        | _ -> [bodyExpr]))
+                | _ -> raise (ParseException "Expected '{' after function parameters")
             | Id "if" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
@@ -785,41 +883,9 @@ module interpreter =
             let (rest, expr) = Program tList
             (rest, expr)
 
-    let mutable tempCounter = 0
-    let mutable labelCounter = 0
-    let mutable typeMap : Map<string, string> = Map.empty
 
-    let setType (operand: Operand) (typeName: string) =
-        match operand with
-        | OpVar name -> typeMap <- typeMap.Add(name, typeName)
-        | OpTemp t -> typeMap <- typeMap.Add($"t{t}", typeName)
-        | _ -> ()
 
-    let getType (operand: Operand) : string =
-        match operand with
-        | OpImmInt _ -> "int"
-        | OpImmFloat _ -> "double"
-        | OpVar name -> 
-            match typeMap.TryFind(name) with
-            | Some t -> t
-            | None -> "int"  // Default to int
-        | OpTemp t -> 
-            match typeMap.TryFind($"t{t}") with
-            | Some ty -> ty
-            | None -> "int"  // Default to int
 
-    let inferBinaryType (left: Operand) (right: Operand) : string =
-        let leftType = getType left
-        let rightType = getType right
-        if leftType = "double" || rightType = "double" then "double"
-        else "int"
-    let assignTemp() =
-        tempCounter <- tempCounter + 1
-        tempCounter
-    
-    let newLabel(prefix: string) =
-        labelCounter <- labelCounter + 1
-        $"{prefix}_{labelCounter}"
     
     let operandToCDecl = function
     | OpTemp t -> $"t{t}"
@@ -921,13 +987,29 @@ module interpreter =
             setType (OpTemp temp) "int"
             codeL @ codeR @ [TACEquiv(OpTemp temp, l, op, r)], OpTemp temp
         | FunCall(funcName, args) ->
-            let argTupleList = args |> List.map flattenIRtoTAC
-            let argList = argTupleList |> List.collect fst
-            let tempList = argTupleList |> List.map snd
-            let lastTemp = tempList |> List.last
-            let temp = assignTemp()
-            setType (OpTemp temp) "double"
-            argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
+            if funcName = "print" then
+                let argTupleList = args |> List.map flattenIRtoTAC
+                let argList = argTupleList |> List.collect fst
+                let tempList = argTupleList |> List.map snd
+                let printArg = tempList |> List.head
+                argList @ [TACPrint printArg], OpImmInt 0
+            else
+                let argTupleList = args |> List.map flattenIRtoTAC
+                let argList = argTupleList |> List.collect fst
+                let tempList = argTupleList |> List.map snd
+                let temp = assignTemp()
+                match userFunctions.TryFind(funcName) with
+                | Some (parameters, body) ->
+                    let bodyProg = Prog(body)
+                    let savedTypeMap = typeMap
+                    typeMap <- Map.empty
+                    let (_, lastOperand) = flattenIRtoTAC bodyProg
+                    let returnType = getType lastOperand
+                    typeMap <- savedTypeMap
+                    setType (OpTemp temp) returnType
+                | None ->
+                    setType (OpTemp temp) "double"
+                argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
         | IfExpr(condExpr, thenExpr, elseExpr) ->
             let (condCode, condTemp) = flattenIRtoTAC condExpr
             let thenLabel = newLabel "then"
@@ -1015,6 +1097,11 @@ module interpreter =
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
             let lastVar = codeList |> List.map snd |> List.last // Get last variable assigned which is the final result
             tac, lastVar
+        | Return expr ->
+            flattenIRtoTAC expr
+        
+        | FuncDef(name, parameters, body) ->
+            [], OpImmInt 0
         | _ ->
             printf "%A\n" ir
             raise (ParseException("Unknown IR token during flattening"))
@@ -1057,10 +1144,10 @@ module interpreter =
         | [] -> Console.Write("EOL\n")
                 []
                 
-    let printValue = function
-    | IntVal x -> string x
-    | FloatVal f -> string f
-    | ComplexVal (r, i) -> complexToString (r, i)
+//    let printValue = function
+//    | IntVal x -> string x
+//    | FloatVal f -> string f
+//    | ComplexVal (r, i) -> complexToString (r, i)
 
     let writeToFile (fileName : string, str : string, path : string) =
         let result = System.IO.Directory.CreateDirectory(path)
@@ -1086,9 +1173,74 @@ module interpreter =
         let body = tac
                     |> List.map tacToString
                     |> String.concat "\n"
-        $"#include <math.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
+        $"#include <math.h>\n#include <stdio.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
             
-            
+    let userFuncToCString (funcName: string) (parameters: string list) (body: Expr list) : string =
+        let bodyProg = Prog(body)
+        let (tac, lastOperand) = flattenIRtoTAC bodyProg
+
+        let allOperands = collectOperands tac
+        let temps = 
+            allOperands 
+            |> List.choose (function 
+                | OpTemp t -> Some $"t{t}"
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+        let vars = 
+            allOperands 
+            |> List.choose (function 
+                | OpVar v -> Some v 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+            |> List.filter (fun v -> not (List.contains v parameters))
+
+        let allNames = temps @ vars
+
+        let intVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "int" -> true
+                | Some "double" -> false
+                | None -> true
+            )
+        
+        let doubleVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "double" -> true
+                | _ -> false
+            )
+
+        let tempDecs = 
+            let declarations = []
+            let declarations = 
+                if intVars.IsEmpty then declarations
+                else ("int " + String.concat ", " intVars + ";") :: declarations
+            let declarations = 
+                if doubleVars.IsEmpty then declarations
+                else ("double " + String.concat ", " doubleVars + ";") :: declarations
+            String.concat "\n" (List.rev declarations)
+        
+        let bodyCode = tac
+                       |> List.map tacToString
+                       |> String.concat "\n"
+
+        let returnType = getType lastOperand
+        
+        let paramDecls = 
+            parameters 
+            |> List.map (fun p ->
+                match typeMap.TryFind(p) with
+                | Some "double" -> $"double {p}"
+                | _ -> $"int {p}")
+            |> String.concat ", "
+        
+        $"{returnType} {funcName}({paramDecls}) {{\n{tempDecs}\n\n{bodyCode}\nreturn {operandToString lastOperand};\n}}\n"
+        
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (_, ast) = parse tokens
@@ -1113,15 +1265,51 @@ module interpreter =
         
     
     let cCompile(expr: string) : string =
-        typeMap <- Map.empty 
+        typeMap <- Map.empty
+        userFunctions <- Map.empty
+        
         let tokens = lexer expr
         printfn "Tokens: %A" tokens
         let (_, ast) = parse tokens
         printfn "AST: %A" ast
-        let (tac, last) = flattenIRtoTAC ast
-        let str = tacCString tac
-        str
-    
+        
+        let rec collectFunctions expr =
+            match expr with
+            | Prog stmts ->
+                stmts |> List.iter collectFunctions
+            | FuncDef(name, parameters, body) ->
+                userFunctions <- userFunctions.Add(name, (parameters, body))
+            | _ -> ()
+        
+        collectFunctions ast
+        
+        let userFuncCode =
+            userFunctions
+            |> Map.toList
+            |> List.map (fun (name, (parameters, body)) ->
+                typeMap <- Map.empty
+                userFuncToCString name parameters body)
+            |> String.concat "\n"
+            
+        let rec filterFuncDefs expr =
+            match expr with
+            | Prog stmts ->
+                let filtered = stmts |> List.filter (function FuncDef _ -> false | _ -> true)
+                Prog filtered
+            | _ -> expr
+        
+        let mainAst = filterFuncDefs ast
+        
+        typeMap <- Map.empty
+        let (tac, last) = flattenIRtoTAC mainAst
+        let mainCode = tacCString tac
+        if userFuncCode = "" then
+            mainCode
+        else
+            let header = "#include <math.h>\n#include <stdio.h>\n\n"
+            let mainBody = mainCode.Replace("#include <math.h>\n#include <stdio.h>\n", "")
+            header + userFuncCode + "\n" + mainBody
+
     let gccCompile (workingDirectory : string) (src : string) (dest : string) =
         let flags = "-Wall -lm"
         
@@ -1167,14 +1355,22 @@ module interpreter =
             
         
         // Test if
-        let compilerInput = "x = 5; y = 6.3; z = x+y; if(x < 1) then { 2*2 }"
+        let compilerInput = "x = 5; y = 6.3; z = x+y; print(z); if(x < 1) then { 2*2 }"
         let compiled = cCompile(compilerInput)
         let outputPath = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
         writeToFile("if_test.c", compiled, outputPath)
         printfn "Compiled successfully!"
         
+        // Test user-defined function
+        let funcTest = "func add(a, b) { return a + b; } x = add(5, 3); print(x)"
+        let funcCompiled = cCompile(funcTest)
+        let outputPath = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+        writeToFile("func_test.c", funcCompiled, outputPath)
+        printfn "%s" funcCompiled
+        
+        
         // Test evaluator
-        let evalInput = "5 + 3 * 2"
+        let evalInput = "5 + 3 * 2; print(2+2222)"
         let result = evaluate evalInput
         printfn "Result: %A" result
         printfn "Symbol Table: %A" symbTable
@@ -1184,5 +1380,7 @@ module interpreter =
         let compiled = cCompile(compilerInput)
         printfn "Result: %A" compiled
         //writeToFile("gui_test.c", compiled)
+        
+
         
         0
