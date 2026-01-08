@@ -37,6 +37,8 @@ module interpreter =
         | ForLoop of string * Expr * Expr * Expr list
         | WhileLoop of Expr * Expr list
         | Prog of Expr list
+        | FuncDef of string * string list * Expr list
+        | Return of Expr
     
     type Operand =
         | OpImmInt of int
@@ -67,7 +69,7 @@ module interpreter =
         }
 
     let mutable symbTable : Map<string, NumericValue> = Map.empty
-   
+    let mutable userFunctions : Map<string, (string list * Expr list)> = Map.empty
     let tempRegs = [ "$t0"; "$t1"; "$t2"; "$t3"; "$t4"; "$t5"; "$t6"; "$t7"; "$t8"; "$t9"]
     let mutable freeRegs = tempRegs
     let tempMap = Dictionary<int, string>()
@@ -620,7 +622,26 @@ module interpreter =
             let argVals = args |> List.map astEvaluate
             match knownFunctions.TryFind(name) with
             | Some f -> f argVals
-            | None -> raise (ParseException($"Unknown function: { name }"))
+            | None ->
+                match userFunctions.TryFind(name) with
+                | Some (params, body) ->
+                    let savedSymbTable = symbTable
+                    params 
+                    |> List.zip argVals
+                    |> List.iter (fun (value, paramName) ->
+                        symbTable <- symbTable.Add(paramName, value))
+                    
+                    let mutable returnValue = IntVal 0
+                    for stmt in body do
+                        match stmt with
+                        | Return expr -> 
+                            returnValue <- astEvaluate expr
+                        | _ -> 
+                            astEvaluate stmt |> ignore
+                    symbTable <- savedSymbTable
+                    returnValue
+                
+                | None -> raise (ParseException($"Unknown function: {name}"))
         | IfExpr(expr1, expr2, exprOption) ->
             let isTrue =
                 match astEvaluate expr1 with
@@ -682,6 +703,9 @@ module interpreter =
             
         and S tList =
             match tList with
+            | Id "return" :: tail ->
+                let (rest, expr) = Comp tail
+                (rest, Return expr)
             | Id name :: Eq :: tail ->
                 let (rest, expr) = Comp tail
                 (rest, Assign(name, expr))
@@ -756,6 +780,27 @@ module interpreter =
                 loop [] tokens
             
             match tList with
+            | Id "func" :: Id funcName :: Lpar :: tail ->
+                let rec parseParams tokens =
+                    match tokens with
+                    | Rpar :: rest -> ([], rest)
+                    | Id paramName :: Comma :: rest ->
+                        let (moreParams, finalRest) = parseParams rest
+                        (paramName :: moreParams, finalRest)
+                    | Id paramName :: Rpar :: rest ->
+                        ([paramName], rest)
+                    | _ -> raise (ParseException "Expected parameter name or ')'")
+                
+                let (params, afterParams) = parseParams tail
+                
+                match afterParams with
+                | Lcurl :: bodyTokens ->
+                    let (restAfterBody, bodyExpr) = parseBlock bodyTokens
+                    (restAfterBody, FuncDef(funcName, params, 
+                        match bodyExpr with 
+                        | Prog stmts -> stmts 
+                        | _ -> [bodyExpr]))
+                | _ -> raise (ParseException "Expected '{' after function parameters")
             | Id "if" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
@@ -1040,6 +1085,11 @@ module interpreter =
             let tac = codeList |> List.collect fst          // Take each code block and collect into one list
             let lastVar = codeList |> List.map snd |> List.last // Get last variable assigned which is the final result
             tac, lastVar
+        | Return expr ->
+            flattenIRtoTAC expr
+        
+        | FuncDef(name, params, body) ->
+            [], OpImmInt 0
         | _ ->
             printf "%A\n" ir
             raise (ParseException("Unknown IR token during flattening"))
@@ -1113,7 +1163,28 @@ module interpreter =
                     |> String.concat "\n"
         $"#include <math.h>\n#include <stdio.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
             
-            
+    let userFuncToCString (funcName: string) (params: string list) (body: Expr list) : string =
+        let bodyProg = Prog(body)
+        let (tac, lastOperand) = flattenIRtoTAC bodyProg
+        
+        let tempDecs = declareTemps tac
+        
+        let bodyCode = tac
+                       |> List.map tacToString
+                       |> String.concat "\n"
+
+        let returnType = getType lastOperand
+        
+        let paramDecls = 
+            params 
+            |> List.map (fun p ->
+                match typeMap.TryFind(p) with
+                | Some "double" -> $"double {p}"
+                | _ -> $"int {p}")
+            |> String.concat ", "
+        
+        $"{returnType} {funcName}({paramDecls}) {{\n{tempDecs}\n\n{bodyCode}\nreturn {operandToString lastOperand};\n}}\n"
+
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (_, ast) = parse tokens
@@ -1138,15 +1209,51 @@ module interpreter =
         
     
     let cCompile(expr: string) : string =
-        typeMap <- Map.empty 
+        typeMap <- Map.empty
+        userFunctions <- Map.empty
+        
         let tokens = lexer expr
         printfn "Tokens: %A" tokens
         let (_, ast) = parse tokens
         printfn "AST: %A" ast
-        let (tac, last) = flattenIRtoTAC ast
-        let str = tacCString tac
-        str
-    
+        
+        let rec collectFunctions expr =
+            match expr with
+            | Prog stmts ->
+                stmts |> List.iter collectFunctions
+            | FuncDef(name, params, body) ->
+                userFunctions <- userFunctions.Add(name, (params, body))
+            | _ -> ()
+        
+        collectFunctions ast
+        
+        let userFuncCode =
+            userFunctions
+            |> Map.toList
+            |> List.map (fun (name, (params, body)) ->
+                typeMap <- Map.empty
+                userFuncToCString name params body)
+            |> String.concat "\n"
+        
+        let rec filterFuncDefs expr =
+            match expr with
+            | Prog stmts ->
+                let filtered = stmts |> List.filter (function FuncDef _ -> false | _ -> true)
+                Prog filtered
+            | _ -> expr
+        
+        let mainAst = filterFuncDefs ast
+        
+        typeMap <- Map.empty
+        let (tac, last) = flattenIRtoTAC mainAst
+        let mainCode = tacCString tac
+        if userFuncCode = "" then
+            mainCode
+        else
+            let header = "#include <math.h>\n#include <stdio.h>\n\n"
+            let mainBody = mainCode.Replace("#include <math.h>\n#include <stdio.h>\n", "")
+            header + userFuncCode + "\n" + mainBody
+
     let gccCompile (workingDirectory : string) (src : string) (dest : string) =
         let flags = "-Wall -lm"
         
@@ -1198,6 +1305,14 @@ module interpreter =
         writeToFile("if_test.c", compiled, outputPath)
         printfn "Compiled successfully!"
         
+        // Test user-defined function
+        let funcTest = "func add(a, b) { return a + b; } x = add(5, 3); print(x)"
+        let funcCompiled = cCompile(funcTest)
+        let outputPath = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+        writeToFile("func_test.c", funcCompiled, outputPath)
+        printfn "%s" funcCompiled
+        
+        
         // Test evaluator
         let evalInput = "5 + 3 * 2; print(2+2222)"
         let result = evaluate evalInput
@@ -1209,5 +1324,7 @@ module interpreter =
         let compiled = cCompile(compilerInput)
         printfn "Result: %A" compiled
         //writeToFile("gui_test.c", compiled)
+        
+
         
         0
