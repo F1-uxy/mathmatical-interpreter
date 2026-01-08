@@ -602,6 +602,7 @@ module interpreter =
             | "-" -> subNums lVal rVal            
             | "*" -> mulNums lVal rVal
             | "/" -> divNums lVal rVal
+            | "%" -> modNums lVal rVal
             | _ -> raise (ParseException($"Unknown operator: {op}"))
         | Eqiv(left, op, right) ->
             let lVal = astEvaluate left 

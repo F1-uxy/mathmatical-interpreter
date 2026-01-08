@@ -361,9 +361,14 @@ namespace GUI
                     resultStr = intCase.Item.ToString();
                 else if (result is MathInterpreter.interpreter.NumericValue.FloatVal floatCase) 
                 {
-                    resultStr = floatCase.Item.ToString("0.0000");
-                }
-                else
+                    resultStr = floatCase.Item.ToString("0.0##");
+                } else if (result is MathInterpreter.interpreter.NumericValue.ComplexVal complexCase)
+                {   
+                    var real = complexCase.Item1.ToString("0.0##");
+                    bool isNegative = complexCase.Item2 < 0;
+                    var imaginary = Math.Abs(complexCase.Item2).ToString("0.0##");
+                    resultStr = $"{real} {(isNegative ? "-" : "+")} {imaginary}i";
+                } else
                     resultStr = "Unknown result";
 
                 AppendToConsole($"= {resultStr}", false);
