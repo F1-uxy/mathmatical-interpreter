@@ -613,6 +613,8 @@ module interpreter =
                 | "+" -> "add"
                 | "-" -> "sub"
                 | "*" -> "mul"
+                | "/" -> "div"
+                | "%" -> "rem"
                 | _ -> raise (GenerationException "Unknown binary op")
             [
                 xCode
@@ -1616,7 +1618,7 @@ module interpreter =
         printfn "Symbol Table: %A" symbTable
         
         // Test RISC-V Compiler
-        let compilerInput = "x = 2 * 5;"
+        let compilerInput = "x = 2 * 5; y = 10/0; z = 9 % 2;"
         let compiled = riscvCompile(compilerInput)
         writeToFile("dev_code.s", compiled, devPath)
         printfn "%A" compiled
