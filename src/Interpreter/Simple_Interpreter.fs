@@ -612,6 +612,7 @@ module interpreter =
                 match op with
                 | "+" -> "add"
                 | "-" -> "sub"
+                | "*" -> "mul"
                 | _ -> raise (GenerationException "Unknown binary op")
             [
                 xCode
@@ -1615,7 +1616,7 @@ module interpreter =
         printfn "Symbol Table: %A" symbTable
         
         // Test RISC-V Compiler
-        let compilerInput = "x = 1 + 2 + 3 + 4 + 5 + 6 + 7;"
+        let compilerInput = "x = 2 * 5;"
         let compiled = riscvCompile(compilerInput)
         writeToFile("dev_code.s", compiled, devPath)
         printfn "%A" compiled
