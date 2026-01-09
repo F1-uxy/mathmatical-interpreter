@@ -110,7 +110,10 @@ public sealed class PlotViewModel : INotifyPropertyChanged
             var series = _plotService.CreateSeries(expression, xMin, xMax, step, MarkerEnabled);
             Model.Title = expression;
             Model.Series.Clear();
-            Model.Series.Add(series);
+            foreach (var item in series)
+            {
+                Model.Series.Add(item);
+            }
         }
         catch (Exception e)
         {

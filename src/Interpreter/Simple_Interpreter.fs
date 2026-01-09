@@ -1113,29 +1113,51 @@ module interpreter =
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
         
     let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
-        let xs = ResizeArray<float>()
-        let ys = ResizeArray<float>()
+        let xs = seq { xMin .. stepSize .. xMax }
 
-        for x in seq { xMin .. stepSize .. xMax } do
-            let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
-            let substituted = expr.Replace("x", replacement)
-            let lexed = lexer substituted
-            let (_, ast) = parse lexed
+        let points =
+            xs
+            |> Seq.map (fun x ->
+                let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
+                let substituted = expr.Replace("x", replacement)
+                let lexed = lexer substituted
+                let (_, ast) = parse lexed
+                try
+                    let result = astEvaluate ast
+                    let y = toFloat result
+                    x, y
+                with
+                | :? DivisionByZeroException -> x, Double.NaN
+                | _ -> x, Double.NaN
+            )
 
-            try
-                let result = astEvaluate ast
-                let y = toFloat result
-                if not (Double.IsNaN y) && not (Double.IsInfinity y) then
-                    xs.Add(x)
-                    ys.Add(y)
-            with
-            | :? DivisionByZeroException ->
-                xs.Add(x)
-                ys.Add(Double.NaN)
-            | _ -> ()
+        let segments =
+            points
+            |> Seq.fold (fun acc (x, y) ->
+                match acc with
+                | [] -> if Double.IsNaN y || Double.IsInfinity y then [] else [[(x, y)]]
+                | curSeg :: rest ->
+                    match curSeg with
+                    | [] -> [[(x, y)]] @ rest
+                    | (_, yPrev) :: _ ->
+                        let relativeJump = abs(y - yPrev) / (max (abs yPrev) 1.0)
+                        if Double.IsNaN y || Double.IsInfinity y || relativeJump > 0.5 then
+                            [[(x, y)]] @ acc  // start new segment
+                        else
+                            ((x, y) :: curSeg) :: rest
+            ) []
+            |> List.map List.rev
+            |> List.filter (fun seg -> seg <> [])
+            |> List.rev
 
-        let res = Plot(xs.ToArray(), ys.ToArray())
-        toJson(res)
+        let jsonSegments =
+            segments
+            |> List.map (fun seg ->
+                let xsSeg, ysSeg = seg |> List.toArray |> Array.unzip
+                {| x = xsSeg; y = ysSeg |}
+            )
+
+        JsonConvert.SerializeObject({| ``type`` = "plotSegments"; segments = jsonSegments |})
 
     let rec printTList (lst:list<terminal>) : list<string> = 
         match lst with
