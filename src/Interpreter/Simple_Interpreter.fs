@@ -560,12 +560,12 @@ module interpreter =
 
     // <Prog>     ::= <S> <Progopt>                 // Fixed implementation
     // <Progopt>  ::= ";" <S> <Progopt> | <empty>
-    // <S>        ::= Id "=" <Comp> | <Comp>
+    // <S>        ::= "return" <Comp> | Id "=" <Comp> | <Comp>
     // <Comp>     ::= <E> | "==" <E> | "<" <E> | ">" <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <P> <Topt>
-    // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
+    // <Topt>     ::= "%" <P> <Topt> | "*" <P> <Topt> | "/" <P> <Topt> | <empty>
     // <P>        ::= <F> <Popt>
     // <Popt>     ::= "^" <P> | <empty>
     // <F>         ::= <FuncDef> | <IfStmt> | <ForLoop> | <WhileLoop> | <NR> | <FCall>
