@@ -10,7 +10,7 @@ using OxyPlot.Series;
 
 namespace MathGUI.MVVM;
 
-public sealed partial class PlotViewModel : INotifyPropertyChanged
+public sealed class PlotViewModel : INotifyPropertyChanged
 {
     private readonly PlotService _plotService;
     private ConsoleService _consoleService;

@@ -5,17 +5,17 @@ namespace MathGUI.MVVM;
 
 public class ConsoleService : IConsoleService
 {
-    private readonly MainViewModel _main;
+    private readonly MainViewModel _expressionService;
 
-    public ConsoleService(MainViewModel main)
+    public ConsoleService(MainViewModel expression)
     {
-        _main = main;
+        _expressionService = expression;
     }
 
     public void AppendToConsole(string str, bool marker)
     {
         // Append instead of overwrite
-        _main.StatusMessage += marker ? $">> { str}\n" : $"{str}\n";
+        _expressionService.StatusMessage += marker ? $">> { str}\n" : $"{str}\n";
     }
 
     public void AppendExceptionToConsole(Exception ex)
