@@ -641,7 +641,7 @@ module interpreter =
                         | Return expr -> 
                             returnValue <- astEvaluate expr
                         | _ -> 
-                            astEvaluate stmt |> ignore
+                            returnValue <- astEvaluate stmt 
                     symbTable <- savedSymbTable
                     returnValue
                 
@@ -687,7 +687,11 @@ module interpreter =
                 else
                     lastResult
             loop (IntVal 0)
-
+        | FuncDef(name, parameters, body) ->
+            userFunctions <- userFunctions.Add(name, (parameters, body))
+            IntVal 0
+        | Return expr ->
+            astEvaluate expr
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
         
     let rec parse tList =
@@ -1404,6 +1408,21 @@ module interpreter =
         printfn "Result: %A" compiled
         //writeToFile("gui_test.c", compiled)
         
+        // Test 
+        let factTest = @"
+        func factorial(n) { 
+            if(n < 2) then { 
+                return 1; 
+            } else { 
+                return n * factorial(n - 1); 
+            } 
+        } 
+        y = factorial(5);"
+
+        printfn "\nTest 2: factorial(5)"
+        let r2 = evaluate factTest
+        printfn "Result: %A" r2
+                
 
         
         0
