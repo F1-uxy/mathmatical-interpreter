@@ -272,6 +272,18 @@ module interpreter =
                 match args with
                 | [x] -> FloatVal (Math.Tan(toFloat x))
                 | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "cosh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Cosh(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "sinh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Sinh(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "tanh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Tanh(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
             "abs", (fun args ->
                 match args with
                 | [IntVal x] -> IntVal (abs x)
