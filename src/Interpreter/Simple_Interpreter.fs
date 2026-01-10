@@ -23,7 +23,7 @@ module interpreter =
         | FloatVal of float
         | ComplexVal of float * float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | GE | LE | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
@@ -201,6 +201,24 @@ module interpreter =
         | IntVal x, FloatVal y -> float x < y
         | FloatVal x, IntVal y -> x < float y
 
+    let numericLessThanEqual (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
+        | IntVal x, IntVal y -> x <= y
+        | FloatVal x, FloatVal y -> x <= y
+        | IntVal x, FloatVal y -> float x <= y
+        | FloatVal x, IntVal y -> x <= float y
+
+    let numericGreaterThanEqual (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
+        | IntVal x, IntVal y -> x >= y
+        | FloatVal x, FloatVal y -> x >= y
+        | IntVal x, FloatVal y -> float x >= y
+        | FloatVal x, IntVal y -> x >= float y
+    
     let rec scFrac (input: char list) (currentValue: float) (place: float) =
         match input with
         | c :: tail when isdigit c ->
@@ -539,6 +557,8 @@ module interpreter =
             | ','::tail -> Comma:: scan tail
             | '='::'='::tail -> EqEq :: scan tail
             | '='::tail -> Eq :: scan tail
+            | '<'::'='::tail -> LE :: scan tail
+            | '>'::'='::tail -> GE :: scan tail
             | '>'::tail -> GT :: scan tail
             | '<'::tail -> LT :: scan tail
             | ';'::tail -> Semi :: scan tail
@@ -623,6 +643,8 @@ module interpreter =
             | "==" -> if numericEqual lVal rVal then IntVal 1 else IntVal 0
             | ">" -> if numericGreaterThan lVal rVal then IntVal 1 else IntVal 0
             | "<" -> if numericLessThan lVal rVal then IntVal 1 else IntVal 0
+            | ">=" -> if numericGreaterThanEqual lVal rVal then IntVal 1 else IntVal 0
+            | "<=" -> if numericLessThanEqual lVal rVal then IntVal 1 else IntVal 0
             | _ -> raise(ParseException($"Unknown comparitor: {op}"))
         | Power(left, right) ->
             powNums (astEvaluate left) (astEvaluate right)
@@ -743,6 +765,12 @@ module interpreter =
             | LT :: tail ->
                 let (rest2, right) = E tail
                 (rest2, Eqiv(left, "<", right))
+            | GE :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, ">=", right))
+            | LE :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, "<=", right))
             | _ -> (rest, left)
         
         and E tList = 
