@@ -1,8 +1,11 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Drawing.Printing;
+using System.IO;
+using System.Net;
 using GUI;
 using GUI.MVVM;
+using Microsoft.Win32;
 
 namespace MathGUI.MVVM;
 
@@ -16,6 +19,7 @@ public sealed class ReplViewModel : ViewModelBase
     public ObservableCollection<SymbolTableEntry> SymbolTable { get; } = new();
 
     public RelayCommand InputEnter => new RelayCommand(_ => SubmitExpression());
+    public RelayCommand OpenFileCommand => new RelayCommand(_ => LoadFile());
 
     public ReplViewModel(MainViewModel expression, ComputeService compute, SymbolTableService symbols, ConsoleService console)
     {
@@ -27,6 +31,23 @@ public sealed class ReplViewModel : ViewModelBase
         _consoleService.AppendToConsole(">> Welcome", false);
         
     }
+
+    private void LoadFile()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Code files (*.ac)|*.ac|All files (*.*)|*.*",
+            Title = "Select a text file"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            string filePath = dialog.FileName;
+            string fileContents = File.ReadAllText(filePath);
+            _expressionService.InputExpression = fileContents;
+        }
+    }
+    
     private void SubmitExpression()
     {
         string expression = _expressionService.InputExpression.ToString();
