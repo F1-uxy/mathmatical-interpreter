@@ -14,6 +14,7 @@ public class CompilerViewModel : ViewModelBase
     private string _selectedLanguage;
 
     public RelayCommand CompileEnter => new RelayCommand(_ => CompileExpression());
+    public RelayCommand RunEnter => new RelayCommand(_ => RunBinary());
     
     public CompilerViewModel(MainViewModel expression, CompilerService compile, SymbolTableService symbols, ConsoleService console)
     {
@@ -74,5 +75,21 @@ public class CompilerViewModel : ViewModelBase
         {
             _consoleService.AppendExceptionToConsole(e);
         }
+    }
+
+    private void RunBinary()
+    {
+        var result = _compilerService.RunBinary();
+        
+        _expressionService.TerminalOutput = result.Success
+            ? (string.IsNullOrWhiteSpace(result.StdErr)
+                ? (string.IsNullOrWhiteSpace(result.StdOut)
+                    ? "Executed successfully."
+                    : result.StdOut)
+                : result.StdErr)
+            : "Execution failed.";
+
+        _expressionService.InputExpression = string.Empty;
+        _symbolTableService.UpdateSymbolTable(_expressionService.SymbolTable);
     }
 }

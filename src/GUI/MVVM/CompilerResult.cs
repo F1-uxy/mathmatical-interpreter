@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices.JavaScript;
 using Newtonsoft.Json.Linq;
 
 namespace MathGUI.MVVM;
@@ -42,6 +43,17 @@ public sealed class CompilerResult
         string stderr = obj["err"]?.ToString() ?? "";
 
         return success ? Ok(code, stdout, stderr) : Fail(code, stderr);
+    }
+
+    public static CompilerResult FromBinaryResult(string json)
+    {
+        JObject obj = JObject.Parse(json);
+        bool success = obj["exit"]?.ToString() == "0";
+        string stdout = obj["out"]?.ToString() ?? "";
+        string stderr = obj["err"]?.ToString() ?? "";
+
+        return success ? Ok("", stdout, stderr) : Fail("", stderr);
+        
     }
     
 }

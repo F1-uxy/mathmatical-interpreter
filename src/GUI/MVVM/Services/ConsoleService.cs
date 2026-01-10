@@ -14,7 +14,6 @@ public class ConsoleService : IConsoleService
 
     public void AppendToConsole(string str, bool marker)
     {
-        // Append instead of overwrite
         _expressionService.StatusMessage += marker ? $">> { str}\n" : $"{str}\n";
     }
 

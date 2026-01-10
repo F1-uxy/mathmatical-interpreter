@@ -47,7 +47,7 @@
                         SelectedItem="{Binding Compile.SelectedLanguage}"
                         Margin="15 20" 
                         Grid.Column="0"/>
-                    <Button Margin="20" Grid.Column="1" Command="{Binding }">
+                    <Button Margin="20" Grid.Column="1" Command="{Binding Compile.RunEnter}">
                         <TextBlock>Run</TextBlock>
                     </Button>
                     <Button Margin="20" Grid.Column="2" Command="{Binding Compile.CompileEnter}">
