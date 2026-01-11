@@ -593,7 +593,7 @@ module interpreter =
     // <Prog>     ::= <S> <Progopt>                 // Fixed implementation
     // <Progopt>  ::= ";" <S> <Progopt> | <empty>
     // <S>        ::= "return" <Comp> | Id "=" <Comp> | <Comp>
-    // <Comp>     ::= <E> | "==" <E> | "<" <E> | ">" <E>
+    // <Comp>     ::= <E> | <E> "==" <E> | "<" <E> | ">" <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <P> <Topt>
@@ -1186,7 +1186,7 @@ module interpreter =
                     | (_, yPrev) :: _ ->
                         let relativeJump = abs(y - yPrev) / (max (abs yPrev) 1.0)
                         if Double.IsNaN y || Double.IsInfinity y || relativeJump > 0.5 then
-                            [[(x, y)]] @ acc  // start new segment
+                            [[(x, y)]] @ acc
                         else
                             ((x, y) :: curSeg) :: rest
             ) []
