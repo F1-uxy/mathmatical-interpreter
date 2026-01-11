@@ -149,3 +149,47 @@ c = conjugate(a);
 // b = FloatVal 5.0
 // c = ComplexVal(3.0, -4.0)
 ```
+#### 5.0 Built-in Functions
+Built-in functions use standard function call syntax:
+```
+sin(x)
+cos(x)
+tan(x)
+abs(x)
+sqrt(x)
+print(x)
+```
+
+Examples:
+```
+x = sin(1.57);
+y = abs(-5);
+print(42);
+```
+
+#### 6.0 User-Defined Functions
+Function definition syntax:
+```
+func <name>(<param1>, <param2>, ...) {
+    <statements>;
+    return <expression>;
+}
+```
+
+Examples:
+```
+func add(a, b) {
+    return a + b;
+}
+
+func factorial(n) {
+    if(n < 2) then {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+x = add(5, 3);
+y = factorial(5);
+```

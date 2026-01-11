@@ -23,7 +23,7 @@ module interpreter =
         | FloatVal of float
         | ComplexVal of float * float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | GE | LE | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
@@ -201,6 +201,24 @@ module interpreter =
         | IntVal x, FloatVal y -> float x < y
         | FloatVal x, IntVal y -> x < float y
 
+    let numericLessThanEqual (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
+        | IntVal x, IntVal y -> x <= y
+        | FloatVal x, FloatVal y -> x <= y
+        | IntVal x, FloatVal y -> float x <= y
+        | FloatVal x, IntVal y -> x <= float y
+
+    let numericGreaterThanEqual (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
+        | IntVal x, IntVal y -> x >= y
+        | FloatVal x, FloatVal y -> x >= y
+        | IntVal x, FloatVal y -> float x >= y
+        | FloatVal x, IntVal y -> x >= float y
+    
     let rec scFrac (input: char list) (currentValue: float) (place: float) =
         match input with
         | c :: tail when isdigit c ->
@@ -271,6 +289,18 @@ module interpreter =
             "tan", (fun args -> 
                 match args with
                 | [x] -> FloatVal (Math.Tan(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "cosh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Cosh(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "sinh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Sinh(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "tanh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Tanh(toFloat x))
                 | _ -> raise (FunctionArgsException("tan takes 1 argument")))
             "abs", (fun args ->
                 match args with
@@ -527,6 +557,8 @@ module interpreter =
             | ','::tail -> Comma:: scan tail
             | '='::'='::tail -> EqEq :: scan tail
             | '='::tail -> Eq :: scan tail
+            | '<'::'='::tail -> LE :: scan tail
+            | '>'::'='::tail -> GE :: scan tail
             | '>'::tail -> GT :: scan tail
             | '<'::tail -> LT :: scan tail
             | ';'::tail -> Semi :: scan tail
@@ -557,13 +589,12 @@ module interpreter =
 
     // Grammar in BNF:
     // <Prog>     ::= <S> <Progopt>
-    // <Progopt>  ::= ";" <S> <Progopt> | <empty>
-    // <S>        ::= Id "=" <Comp> | <Comp>
-    // <Comp>     ::= <E> | <E> "==" <E> | <E> "<" <E> | <E> ">" <E>
+    // <S>        ::= "return" <Comp> | Id "=" <Comp> | <Comp>
+    // <Comp>     ::= <E> | <E> "==" <E> | "<" <E> | ">" <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <P> <Topt>
-    // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
+    // <Topt>     ::= "%" <P> <Topt> | "*" <P> <Topt> | "/" <P> <Topt> | <empty>
     // <P>        ::= <F> <Popt>
     // <Popt>     ::= "^" <P> | <empty>
     // <F>         ::= <FuncDef> | <IfStmt> | <ForLoop> | <WhileLoop> | <NR> | <FCall>
@@ -609,6 +640,8 @@ module interpreter =
             | "==" -> if numericEqual lVal rVal then IntVal 1 else IntVal 0
             | ">" -> if numericGreaterThan lVal rVal then IntVal 1 else IntVal 0
             | "<" -> if numericLessThan lVal rVal then IntVal 1 else IntVal 0
+            | ">=" -> if numericGreaterThanEqual lVal rVal then IntVal 1 else IntVal 0
+            | "<=" -> if numericLessThanEqual lVal rVal then IntVal 1 else IntVal 0
             | _ -> raise(ParseException($"Unknown comparitor: {op}"))
         | Power(left, right) ->
             powNums (astEvaluate left) (astEvaluate right)
@@ -639,7 +672,7 @@ module interpreter =
                         | Return expr -> 
                             returnValue <- astEvaluate expr
                         | _ -> 
-                            astEvaluate stmt |> ignore
+                            returnValue <- astEvaluate stmt 
                     symbTable <- savedSymbTable
                     returnValue
                 
@@ -685,7 +718,11 @@ module interpreter =
                 else
                     lastResult
             loop (IntVal 0)
-
+        | FuncDef(name, parameters, body) ->
+            userFunctions <- userFunctions.Add(name, (parameters, body))
+            IntVal 0
+        | Return expr ->
+            astEvaluate expr
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
         
     let rec parse tList =
@@ -725,6 +762,12 @@ module interpreter =
             | LT :: tail ->
                 let (rest2, right) = E tail
                 (rest2, Eqiv(left, "<", right))
+            | GE :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, ">=", right))
+            | LE :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, "<=", right))
             | _ -> (rest, left)
         
         and E tList = 
@@ -1111,29 +1154,51 @@ module interpreter =
         | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
         
     let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
-        let xs = ResizeArray<float>()
-        let ys = ResizeArray<float>()
+        let xs = seq { xMin .. stepSize .. xMax }
 
-        for x in seq { xMin .. stepSize .. xMax } do
-            let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
-            let substituted = expr.Replace("x", replacement)
-            let lexed = lexer substituted
-            let (_, ast) = parse lexed
+        let points =
+            xs
+            |> Seq.map (fun x ->
+                let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
+                let substituted = expr.Replace("x", replacement)
+                let lexed = lexer substituted
+                let (_, ast) = parse lexed
+                try
+                    let result = astEvaluate ast
+                    let y = toFloat result
+                    x, y
+                with
+                | :? DivisionByZeroException -> x, Double.NaN
+                | _ -> x, Double.NaN
+            )
 
-            try
-                let result = astEvaluate ast
-                let y = toFloat result
-                if not (Double.IsNaN y) && not (Double.IsInfinity y) then
-                    xs.Add(x)
-                    ys.Add(y)
-            with
-            | :? DivisionByZeroException ->
-                xs.Add(x)
-                ys.Add(Double.NaN)
-            | _ -> ()
+        let segments =
+            points
+            |> Seq.fold (fun acc (x, y) ->
+                match acc with
+                | [] -> if Double.IsNaN y || Double.IsInfinity y then [] else [[(x, y)]]
+                | curSeg :: rest ->
+                    match curSeg with
+                    | [] -> [[(x, y)]] @ rest
+                    | (_, yPrev) :: _ ->
+                        let relativeJump = abs(y - yPrev) / (max (abs yPrev) 1.0)
+                        if Double.IsNaN y || Double.IsInfinity y || relativeJump > 0.5 then
+                            [[(x, y)]] @ acc
+                        else
+                            ((x, y) :: curSeg) :: rest
+            ) []
+            |> List.map List.rev
+            |> List.filter (fun seg -> seg <> [])
+            |> List.rev
 
-        let res = Plot(xs.ToArray(), ys.ToArray())
-        toJson(res)
+        let jsonSegments =
+            segments
+            |> List.map (fun seg ->
+                let xsSeg, ysSeg = seg |> List.toArray |> Array.unzip
+                {| x = xsSeg; y = ysSeg |}
+            )
+
+        JsonConvert.SerializeObject({| ``type`` = "plotSegments"; segments = jsonSegments |})
 
     let rec printTList (lst:list<terminal>) : list<string> = 
         match lst with
@@ -1380,6 +1445,21 @@ module interpreter =
         printfn "Result: %A" compiled
         //writeToFile("gui_test.c", compiled)
         
+        // Test 
+        let factTest = @"
+        func factorial(n) { 
+            if(n < 2) then { 
+                return 1; 
+            } else { 
+                return n * factorial(n - 1); 
+            } 
+        } 
+        y = factorial(5);"
+
+        printfn "\nTest 2: factorial(5)"
+        let r2 = evaluate factTest
+        printfn "Result: %A" r2
+                
 
         
         0
