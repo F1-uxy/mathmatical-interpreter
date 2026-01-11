@@ -6,7 +6,6 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Interpreter", "..\Interpret
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InterpreterTests", "..\InterpreterTests\InterpreterTests.csproj", "{3A37CE62-0BFD-4B0C-9168-ED55D7E53E8C}"
 	ProjectSection(ProjectDependencies) = postProject
-		{FD875629-B524-4BEA-B078-5887C8EB2422} = {FD875629-B524-4BEA-B078-5887C8EB2422}
 		{F773F6EB-A742-43B7-A273-87AA63AAC240} = {F773F6EB-A742-43B7-A273-87AA63AAC240}
 	EndProjectSection
 EndProject
