@@ -1,0 +1,6 @@
+func square(x) { return x * x; }
+func add(a, b) { return a + b; }
+func sumOfSquares(a, b) {
+    return add(square(a), square(b));
+}
+result = sumOfSquares(3, 4);
