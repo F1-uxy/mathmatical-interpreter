@@ -1,0 +1,8 @@
+func square(x) { 
+    return x * x; 
+}
+sum = 0;
+for(i = 1 to 5) do {
+    sum = sum + square(i);
+}
+print(sum);
