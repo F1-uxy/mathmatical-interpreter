@@ -1,12 +1,11 @@
-﻿using MathInterpreter;
+﻿using System.Runtime;
+using MathInterpreter;
 
 namespace InterpreterTests
 {
-    
-    
     public class MathematicalInterpreterTests
     {
-        public enum ValueType { Int, Float }
+        public enum ValueType { Int, Float, Complex }
 
         [TestCase("5*3+(2*3-2)/2+6", 23, ValueType.Int)]
         [TestCase("9-3-2", 4, ValueType.Int)]
@@ -47,6 +46,33 @@ namespace InterpreterTests
                 default:
                     throw new NotSupportedException();
             }
+        }
+        
+        [TestCase("complex(2,3)*-2", -4.0, -6.0, ValueType.Complex)]
+        [TestCase("complex(1,-1) + complex(2,3)", 3.0, 2.0, ValueType.Complex)]
+        [TestCase("complex(1,-1) * complex(5, 2)", 7.0, -3.0, ValueType.Complex)]
+        [TestCase("a = complex(3,4); magnitude(a)", 5.0, 0.0, ValueType.Float)]
+        public void ComplexExpressionTests(string expression, double expectedReal, double expectedImag, ValueType type)
+        {
+            var result = MathInterpreter.interpreter.evaluate(expression);
+            switch (type)
+            {
+                case ValueType.Float:
+                    Console.WriteLine(result);
+                    var actualFloat = ((interpreter.NumericValue.FloatVal)result).Item;
+                    float expectedFloat = (float)expectedReal;
+                    Assert.That(actualFloat, Is.EqualTo(expectedFloat).Within(0.0001));
+                    break;
+                case ValueType.Complex:
+                    var complexResult = (interpreter.NumericValue.ComplexVal)result;
+
+                    Assert.That(complexResult.Item1, Is.EqualTo(expectedReal).Within(0.0001), "Real part mismatch");
+                    Assert.That(complexResult.Item2, Is.EqualTo(expectedImag).Within(0.0001), "Imag part mismatch");
+                    break;
+                default:
+                    throw new NotSupportedException();
+            }
+            
         }
     }
 }
