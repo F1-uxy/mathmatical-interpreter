@@ -808,6 +808,7 @@ module interpreter =
 
     // Grammar in BNF:
     // <Prog>     ::= <S> <Progopt>
+    // <Progopt>  ::= ";" <S> <Progopt> | <empty>
     // <S>        ::= "return" <Comp> | Id "=" <Comp> | <Comp>
     // <Comp>     ::= <E> | <E> "==" <E> | "<" <E> | ">" <E>
     // <E>        ::= <T> <Eopt>
