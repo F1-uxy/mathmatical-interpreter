@@ -16,24 +16,33 @@ using OxyPlot.Series;
 using System.ComponentModel;
 using System.DirectoryServices.ActiveDirectory;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
 using Microsoft.FSharp.Core;
 using Microsoft.FSharp.Collections;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using MathInterpreter;
 using GUI.MVVM;
+using MathGUI.MVVM;
+using MathGUI.MVVM.Interfaces;
 using OxyPlot.Axes;
 
 namespace GUI
 {
-    public class MainViewModel : INotifyPropertyChanged
+    public class MainViewModel : INotifyPropertyChanged, IExpressionService
     {
+        public ReplViewModel Repl { get; }
+        public PlotViewModel Plot { get; }
+        public CompilerViewModel Compile { get; }
         
         private readonly WindowService _windowService =  new WindowService();
+        
         // Status TextBlock
         private string _statusMessage = string.Empty;
-        private string _currentExpression = string.Empty;
         private string _inputExpression = string.Empty;
+        private string _compilerOutput = string.Empty;
+        private string _terminalOutput = string.Empty;
+        
         private float _xMinInput = 0;
         private float _xMaxInput = 0;
         private float _stepInput = 0;
@@ -45,141 +54,72 @@ namespace GUI
         public RelayCommand HelpWindowShow => new RelayCommand(_ => ShowHelpWindow());
         public RelayCommand AboutWindowShow => new RelayCommand(_ => ShowAboutWindow());
 
-        public RelayCommand InputEnter => new RelayCommand(_ => SubmitExpression());
-
-        public RelayCommand PlotEnter => new RelayCommand(_ => RedrawExpression());
-
-        public PlotModel MyModel { get; private set; }
-
         public ObservableCollection<SymbolTableEntry> SymbolTable { get; } = new ObservableCollection<SymbolTableEntry>();
+        public ObservableCollection<string> Languages { get; } = new() { "C", "RISC-V" };
         
         public MainViewModel()
         {
-            Func<double, double> myFun1 = (x) => 2 * x;
-            Func<double, double> sinFunc = (x) => Math.Sin(x);
-            this.MyModel = new PlotModel { Title = "sin(x)" };
-            this.MyModel.Series.Add(new FunctionSeries(sinFunc, 0, 10, 0.1, "sin(x)"));
-            
-            LinearAxis xAxis = new LinearAxis { Position = AxisPosition.Bottom };
-            LinearAxis yAxis = new LinearAxis { Position = AxisPosition.Left };
-            
-            MyModel.Axes.Add(xAxis);
-            MyModel.Axes.Add(yAxis);
+            var compute = new ComputeService();
+            var plotter = new PlotService();
+            var compiler = new CompilerService();
+            var symbols = new SymbolTableService();
+            var console = new ConsoleService(this);
 
-            xAxis.AxisChanged += OnAxisChanged;
-            
-            AppendToConsole(">> Welcome", false);
-            XMinInput = 0;
-            XMaxInput = 10;
-            StepInput = 0.1f;
-            CurrentExpression = "sin(x)";
+            Repl = new ReplViewModel(this, compute, symbols, console);
+            Plot = new PlotViewModel(this, plotter, console);
+            Compile = new CompilerViewModel(this, compiler, symbols, console);
+
         }
         
+        public string InputExpression
+        {
+            get => _inputExpression;
+            set
+            {
+                if (_inputExpression == value) return;
+                _inputExpression = value;
+                OnPropertyChanged();
+            }
+        }
         
         public string StatusMessage
         {
             get => _statusMessage;
             set
             {
-                if(_statusMessage == value)
-                {
-                    return;
-                }
+                if (_statusMessage == value) return;
                 _statusMessage = value;
                 OnPropertyChanged();
             }
         }
         
-        public float XMaxInput
+        public string CompilerOutput
         {
-            get => _xMaxInput;
+            get => _compilerOutput;
             set
             {
-                if(_xMaxInput == value)
+                if(_compilerOutput == value)
                 {
                     return;
                 }
-                _xMaxInput = value;
+                _compilerOutput = value;
                 OnPropertyChanged();
             }
         }
         
-        public float XMinInput
+        
+        
+        public string? TerminalOutput
         {
-            get => _xMinInput;
+            get => _terminalOutput;
             set
             {
-                if(_xMinInput == value)
+                if(_terminalOutput == value)
                 {
                     return;
                 }
-                _xMinInput = value;
+                _terminalOutput = value;
                 OnPropertyChanged();
-            }
-        }
-        
-        public float StepInput
-        {
-            get => _stepInput;
-            set
-            {
-                if(_stepInput != value)
-                {
-                    _stepInput = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        public bool MarkerEnabled
-        {
-            get => _markerEnabled;
-            set
-            {
-                if (_markerEnabled != value)
-                {
-                    _markerEnabled = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
-        
-        public bool ScaleEnabled
-        {
-            get => _scaleEnabled;
-            set
-            {
-                if (_scaleEnabled != value)
-                {
-                    _scaleEnabled = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
-
-        public string InputExpression
-        {
-            get => _inputExpression;
-            set
-            {
-                if(_inputExpression != value)
-                {
-                    _inputExpression = value;
-                    OnPropertyChanged();
-                }
-            }
-        }
-        
-        public string CurrentExpression
-        {
-            get => _currentExpression;
-            set
-            {
-                if(_currentExpression != value)
-                {
-                    _currentExpression = value;
-                    OnPropertyChanged();
-                }
             }
         }
         
@@ -188,20 +128,6 @@ namespace GUI
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
-        
-        private void OnAxisChanged(object? sender, AxisChangedEventArgs e)
-        {
-            if (sender is LinearAxis xAxis && ScaleEnabled)
-            {
-                double min = xAxis.ActualMinimum;
-                double max = xAxis.ActualMaximum;
-
-                PlotExpression(CurrentExpression, min, max);
-
-                MyModel.InvalidatePlot(false);
-            }
-        }
-        
         private void Exit()
         {
             Application.Current.Shutdown();
@@ -219,131 +145,6 @@ namespace GUI
             _windowService.ShowWindow(aboutViewModel);
         }
 
-        private void AppendToConsole(string str, bool marker)
-        {
-            StatusMessage += marker ? $">> { str }\n" : $"{ str }\n";
-        }
-
-        private void AppendExceptionToConsole(Exception ex)
-        {
-            AppendToConsole(ex.Message, false);
-        }
-        
-        private void AppendExceptionToConsole(string ex)
-        {
-            AppendToConsole(ex, false);
-        }
-
-        private void RedrawExpression()
-        {
-            PlotExpression(InputExpression, XMinInput, XMaxInput);
-            MyModel.InvalidatePlot(false);
-        }
-
-        private void PlotExpression(string expression, double xMin, double xMax)
-        {
-            if (expression == string.Empty) return;
-            CurrentExpression = expression;
-            try
-            {
-                string json = MathInterpreter.interpreter.evalPlot(expression, xMin, xMax, StepInput);
-                JArray objs = JArray.Parse(json);
-                
-                MyModel.Title = expression;
-                MyModel.Series.Clear();
-                
-                foreach (JObject obj in objs)
-                {
-                    string type = (string)obj["type"];
-
-                    if (type == "plot")
-                    {
-                        double[] x = obj["x"].ToObject<double[]>();
-                        double[] y = obj["y"].ToObject<double[]>();
-                        var series = new LineSeries();
-                        
-                        if (MarkerEnabled)
-                        {
-                            series.MarkerType = MarkerType.Circle;
-                            series.MarkerSize = 3;
-                            series.MarkerStroke = OxyColors.Black;
-                        }
-
-                        for (int i = 0; i < x.Length; i++)
-                        {
-                            series.Points.Add(new DataPoint(x[i], y[i]));
-                        }
-
-                        MyModel.Series.Add(series);
-                    }
-                }
-                
-                MyModel.InvalidatePlot(true);
-            }
-            catch (Exception e)
-            {
-                AppendExceptionToConsole($"Plot failed: {e.Message}");
-            }
-        }
-        private void SubmitExpression()
-        {
-            string expression = _inputExpression.ToString();
-            AppendToConsole(expression, true);
-            if (expression == string.Empty) return;
-            try
-            {
-                var result = MathInterpreter.interpreter.evaluate(expression);
-                
-                string resultStr;
-
-                if (result is MathInterpreter.interpreter.NumericValue.IntVal intCase)
-                    resultStr = intCase.Item.ToString();
-                else if (result is MathInterpreter.interpreter.NumericValue.FloatVal floatCase) 
-                {
-                    resultStr = floatCase.Item.ToString("0.0000");
-                }
-                else
-                    resultStr = "Unknown result";
-
-                AppendToConsole($"= {resultStr}", false);
-                
-                InputExpression = string.Empty;
-                UpdateSymbolTable();
-            }
-            catch (MathInterpreter.Exceptions.LexerException e)
-            {
-                AppendExceptionToConsole(e);
-            }
-            catch (MathInterpreter.Exceptions.ParseException e)
-            {
-                AppendExceptionToConsole(e);
-            }
-            catch (MathInterpreter.Exceptions.DivisionByZeroException e)
-            {
-                AppendExceptionToConsole(e);
-            }
-            catch (MathInterpreter.Exceptions.FunctionArgsException e)
-            {
-                AppendExceptionToConsole(e);
-            }
-            
-        }
-
-        public void UpdateSymbolTable()
-        {
-            SymbolTable.Clear();
-            foreach (var symbolTableEntry in MathInterpreter.interpreter.symbTable)
-            {
-                SymbolTable.Add(new SymbolTableEntry{ SymbolTableKey = symbolTableEntry.Key, 
-                                      SymbolTableValue = symbolTableEntry.Value.ToString()});
-            }
-        }
-        
-        public void AddSymbol(string key, string value)
-        {
-            SymbolTable.Add(new SymbolTableEntry() { SymbolTableKey = key, SymbolTableValue = value });
-            
-        }
     }
 }
 

@@ -5,11 +5,17 @@
 
 namespace MathInterpreter
 
+open System.Collections.Generic
 open System.Diagnostics
+open System.Linq
+open System.Text
+open MathInterpreter
+open System.Text
 
 module interpreter = 
 
     open System
+    open System.IO
     open MathInterpreter.Exceptions
     open Newtonsoft.Json
     type NumericValue =
@@ -17,7 +23,7 @@ module interpreter =
         | FloatVal of float
         | ComplexVal of float * float
     type terminal = 
-        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | Semi | Num of NumericValue | Id of string
+        Add | Sub | Mul | Div | Mod | Pow | Lpar | Rpar | Lcurl | Rcurl | Comma | Eq | EqEq | GT | LT | GE | LE | Semi | Num of NumericValue | Id of string
     type Expr =
         | Int of NumericValue
         | Binary of Expr * string * Expr
@@ -31,12 +37,43 @@ module interpreter =
         | ForLoop of string * Expr * Expr * Expr list
         | WhileLoop of Expr * Expr list
         | Prog of Expr list
-            
+        | FuncDef of string * string list * Expr list
+        | Return of Expr
+    
+    type Operand =
+        | OpImmInt of int
+        | OpImmFloat of float
+        | OpVar of string
+        | OpTemp of int
+        
+    type TAC =
+        | TACAssign of Operand * Operand                     // x := y
+        | TACBinary of Operand * Operand * string * Operand  // t := y op x
+        | TACUnary of Operand * string * Operand             // t := op x
+        | TACGoto of string
+        | TACCall of Operand * string * Operand list          // t := call func(args...)
+        | TACLabel of string
+        | TACIf of Operand * string                          // if x goto label
+        | TACIfCmp of Operand * string * Operand * string    // if x comp y goto label
+        | TACEquiv of Operand * Operand * string * Operand     // t := x op y
+        | TACPrint of Operand
+        
     type EvalResult =
-        | Number of NumericValue
-        | Plot of X: float[] * Y: float[]
-
+        Number of NumericValue | Plot of X: float[] * Y: float[]
+    
+    type InstrID = int
+    
+    type Liveness =
+        {
+            In : Set<Operand>
+            Out : Set<Operand>
+        }
+        
     let mutable symbTable : Map<string, NumericValue> = Map.empty
+    let mutable userFunctions : Map<string, (string list * Expr list)> = Map.empty
+    let tempRegs = [ "$t0"; "$t1"; "$t2"; "$t3"; "$t4"; "$t5"; "$t6"; "$t7"; "$t8"; "$t9"]
+    let mutable freeRegs = tempRegs
+    let tempMap = Dictionary<int, string>()
     
     let str2lst s = [for c in s -> c]
     let isblank c = System.Char.IsWhiteSpace c
@@ -165,6 +202,24 @@ module interpreter =
         | IntVal x, FloatVal y -> float x < y
         | FloatVal x, IntVal y -> x < float y
 
+    let numericLessThanEqual (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
+        | IntVal x, IntVal y -> x <= y
+        | FloatVal x, FloatVal y -> x <= y
+        | IntVal x, FloatVal y -> float x <= y
+        | FloatVal x, IntVal y -> x <= float y
+
+    let numericGreaterThanEqual (a: NumericValue) (b: NumericValue) =
+        match a, b with
+        | ComplexVal _, _ | _, ComplexVal _ -> 
+            raise (ParseException("Cannot compare complex numbers with > or <"))
+        | IntVal x, IntVal y -> x >= y
+        | FloatVal x, FloatVal y -> x >= y
+        | IntVal x, FloatVal y -> float x >= y
+        | FloatVal x, IntVal y -> x >= float y
+    
     let rec scFrac (input: char list) (currentValue: float) (place: float) =
         match input with
         | c :: tail when isdigit c ->
@@ -213,7 +268,10 @@ module interpreter =
         | c :: tail when isdigit c -> scInt(tail, 10*iVal+(intVal c))
         | _ -> (iStr, Num (IntVal iVal))
         
-    
+    let printValue = function
+        | IntVal x -> string x
+        | FloatVal f -> string f
+        | ComplexVal (r, i) -> complexToString (r, i)
     let rec scId(input, acc) =
         match input with
         | c :: tail when isid c -> scId (tail, acc + string c)
@@ -232,6 +290,18 @@ module interpreter =
             "tan", (fun args -> 
                 match args with
                 | [x] -> FloatVal (Math.Tan(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "cosh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Cosh(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "sinh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Sinh(toFloat x))
+                | _ -> raise (FunctionArgsException("tan takes 1 argument")))
+            "tanh", (fun args -> 
+                match args with
+                | [x] -> FloatVal (Math.Tanh(toFloat x))
                 | _ -> raise (FunctionArgsException("tan takes 1 argument")))
             "abs", (fun args ->
                 match args with
@@ -272,7 +342,422 @@ module interpreter =
                 | [ComplexVal (r, i)] -> ComplexVal (r, -i)
                 | [x] -> x
                 | _ -> raise (FunctionArgsException("conjugate takes 1 argument")))
+            "print", (fun args -> 
+                match args with
+                | [x] -> 
+                    printfn "%s" (printValue x)  // Prints to console
+                    IntVal 0  // Return 0 (like void in C)
+                | _ -> raise (FunctionArgsException("print takes 1 argument")))
         ]
+  
+    let operandToString operand =
+        match operand with
+        | OpVar x -> string x
+        | OpTemp x -> $"t{x}"
+        | OpImmInt x -> string x
+        | OpImmFloat x -> string x
+        
+    let operandListToString args =
+        let argList = args
+                    |> List.map operandToString 
+                    |> String.concat ","
+        argList
+    let isRealOperand op =
+        match op with
+        | OpImmInt _
+        | OpImmFloat _ -> false
+        | _ -> true
+    
+    let isVar op =
+        match op with
+        | OpImmInt _
+        | OpImmFloat _
+        | OpTemp _ -> false
+        | _ -> true
+        
+    let collectDefs tacList : Operand list =
+        tacList |> List.collect ( function
+            | TACAssign (dst, _) -> [dst]
+            | TACUnary (dst, _, _) -> [dst]
+            | TACBinary (dst, _, _, _) -> [dst]
+            | TACEquiv (dst, _, _, _) -> [dst]
+            | TACCall (dst, _, _) -> [dst]
+            | _ -> []
+        )
+        |> List.filter isRealOperand
+        |> List.distinct
+        
+    let collectUses tacList : Operand list =
+        tacList |> List.collect (function
+            | TACAssign (_, src) -> [src]
+            | TACUnary (_, _, src) -> [src]
+            | TACBinary (_, src1, _, src2) -> [src1; src2]
+            | TACEquiv (_, src1, _, src2) -> [src1; src2]
+            | TACIf (x, _) -> [x]
+            | TACIfCmp (x, _, y, _) -> [x; y]
+            | TACCall (_, _, args) -> args
+            | TACPrint arg -> [arg]
+            | TACGoto _
+            | TACLabel _ -> []
+        )
+        |> List.filter isRealOperand
+        |> List.distinct
+    
+    let collectOperands tacList : Operand list =
+        tacList |> List.collect ( function
+            | TACAssign (dst, src) -> [dst; src]
+            | TACUnary(dst, _, src) ->
+                [dst; src]
+            | TACBinary(dst, src1, _, src2) -> [dst; src1; src2]
+            | TACEquiv(dst, src1, _, src2) -> [dst; src1; src2]
+            | TACIf(x, _) -> [x]
+            | TACIfCmp(x, _, y, _) -> [x; y]
+            | TACCall(dst, _, args) -> dst :: args
+            | TACPrint arg -> [arg]
+            | TACGoto _
+            | TACLabel _ -> []
+            )
+        |> List.filter isRealOperand
+        |> List.distinct
+    
+    let collectVars tacList : Operand list =
+        collectOperands tacList
+        |> List.filter isVar
+        |> List.distinct
+    
+    let uses tac =
+        match tac with
+        | TACAssign (_, src) -> [src]
+        | TACUnary (_, _, src) -> [src]
+        | TACBinary (_, src1, _, src2) -> [src1; src2]
+        | TACEquiv (_, src1, _, src2) -> [src1; src2]
+        | TACIf (x, _) -> [x]
+        | TACIfCmp (x, _, y, _) -> [x; y]
+        | TACCall (_, _, args) -> args
+        | TACGoto _
+        | TACLabel _ -> []
+
+    let defs tac =
+        match tac with
+        | TACAssign (dst, _) -> [dst]
+        | TACUnary (dst, _, _) -> [dst]
+        | TACBinary (dst, _, _, _) -> [dst]
+        | TACEquiv (dst, _, _, _) -> [dst]
+        | TACCall (dst, _, _) -> [dst]
+        | _ -> []
+       
+    let enumerateTACList tac =
+        tac |> List.mapi( fun i x -> i, x) |> Map.ofList 
+    
+    let useMap enumTac =
+        enumTac |> Map.map (fun _ tac -> uses tac |> List.filter isRealOperand |> Set.ofList)
+
+    let defMap enumTac =
+        enumTac |> Map.map (fun _ tac -> defs tac |> List.filter isRealOperand |> Set.ofList)
+    
+    let livenessStep (live : Map<int,Liveness>) 
+                 (enumTac : Map<int,TAC>) 
+                 (successors : int -> int list) 
+                 (uses : Map<int, Set<Operand>>) 
+                 (defs : Map<int, Set<Operand>>) =
+        enumTac
+        |> Map.fold (fun acc id _ ->
+            let outSet =
+                successors id
+                |> List.collect (fun s -> live.[s].In |> Set.toList)
+                |> Set.ofList
+
+            let inSet =
+                Set.union uses.[id] (Set.difference outSet defs.[id])
+
+            acc |> Map.add id { In = inSet; Out = outSet }
+        ) Map.empty
+    
+    let calcLiveness tac =
+        let enumTac = enumerateTACList tac
+        let uses = useMap enumTac
+        let defs = defMap enumTac
+        let successors id =
+            if Map.containsKey (id + 1) enumTac then [id + 1] else []
+        let emptyLive =
+            enumTac |> Map.map (fun _ _ -> { In = Set.empty; Out = Set.empty })
+
+        let rec fix live =
+            let live' = livenessStep live enumTac successors uses defs
+            if live' = live then live
+            else fix live'
+
+        fix emptyLive
+    
+    let computeLiveRanges (liveMap : Map<int,Liveness>) =
+        liveMap
+        |> Map.fold (fun acc instr {In = inSet; Out = outSet} ->
+            let temps =
+                Set.union inSet outSet
+                |> Set.fold (fun s op ->
+                    match op with
+                    | OpTemp n -> Set.add n s
+                    | _ -> s
+                ) Set.empty
+
+            temps |> Set.fold (fun a t ->
+                let (startI, endI) = Map.tryFind t a |> Option.defaultValue (instr, instr)
+                Map.add t (min startI instr, max endI instr) a
+            ) acc
+        ) Map.empty
+    
+    let linearScanAllocate (liveRanges : Map<int, int*int>) numRegs =
+        let sortedTemps =
+            liveRanges
+            |> Map.toList
+            |> List.sortBy (fun (_, (start,_)) -> start)
+
+        let rec scan temps active freeRegs regMap =
+            match temps with
+            | [] -> regMap
+            | (t, (start, finish)) :: rest ->
+                let (active', freeRegs') =
+                    active
+                    |> List.fold (fun (act, free) (tempA, endA) ->
+                        if endA < start then
+                            let free = 
+                                match Map.tryFind tempA regMap with
+                                | Some r when r >= 0 -> Set.add r free
+                                | _ -> free
+                            (act, free)
+                        else
+                            (act @ [(tempA, endA)], free)
+                    ) ([], freeRegs)
+
+                match Seq.tryHead (Set.toSeq freeRegs') with
+                | Some r ->
+                    let regMap' = Map.add t r regMap
+                    let active'' = active' @ [(t, finish)]
+                    let freeRegs'' = Set.remove r freeRegs'
+                    scan rest active'' freeRegs'' regMap'
+                | None ->
+                    let regMap' = Map.add t -1 regMap
+                    let active'' = active' @ [(t, finish)]
+                    scan rest active'' freeRegs' regMap'
+
+        scan sortedTemps [] (Set.ofSeq {0..numRegs-1}) Map.empty
+            
+    let isTerminator tac =
+        match tac with
+        | TACGoto _ | TACIf _ -> true
+        | _ -> false
+
+    let isLeader (i : int, tac : TAC) =
+        match (tac, i) with
+        | (_, 0) | (TACLabel _, _) -> true
+        | (_, _) -> false
+    
+    let assignSlot(slotSize : int, operands : Operand list) =
+        operands
+            |> List.indexed
+            |> List.map (fun (i, op) -> op, (i+1) * slotSize)
+            |> Map.ofList
+    
+    let allocateStackSlots operands =
+        let slotSize = 4
+        let map = assignSlot(slotSize, operands)
+        let frameSize = Map.count map * slotSize
+        map, frameSize
+        
+    let buildFrame tac =
+        let operands = collectVars tac
+        let map, frameSize = allocateStackSlots operands
+        map, frameSize
+    
+    let slotOf (map : Map<Operand, int>, operand : Operand) =
+        match operand with
+        | OpImmInt _ | OpImmFloat _ ->
+            raise(GenerationException("Attemped to get immediate value from stack"))
+        | _ -> map.[operand]
+        
+    let loadStackValue(map : Map<Operand, int>, register: int, operand : Operand) =
+        match operand with
+        | OpImmInt i ->
+            sprintf $"li t{register}, {i}"
+        | _ ->
+            let offset = slotOf(map, operand)
+            sprintf $"li t{register}, {offset}(s0)"
+    
+    let storeStackValue(map : Map<Operand, int>, register: int, operand : Operand) =
+        let offset = slotOf(map, operand)
+        sprintf $"sw {register}, {offset}(s0)"
+        
+    let riscvPreamble frameSize =
+        sprintf $"addi sp, sp, -{frameSize}"
+        
+    let branchInstruction comp =
+        match comp with
+        | "<" -> "blt"
+        | ">" -> "bgt"
+        | _ -> raise(GenerationException("Unknown comparison operator"))
+        
+    let loadOpToReg (stackMap : Map<Operand,int>) (dstReg : Operand) (src : Operand) =
+        match src with
+        | OpImmInt i ->
+            $"li {operandToString dstReg}, {i}"
+        | OpTemp _ ->
+            "" 
+        | OpVar _ ->
+            $"lw {operandToString dstReg}, {slotOf(stackMap, src)}(sp)"
+        | _ ->
+            raise (GenerationException "Unsupported operand")
+
+            
+    let regOfOperand (regAssignments : Map<int,int>) (op : Operand) =
+        match op with
+        | OpTemp t ->
+            regAssignments
+            |> Map.tryFind t
+            |> Option.map (fun r -> OpTemp r)
+        | _ -> None
+
+    
+    let tacToRisc (tac : TAC)
+              (stackMap : Map<Operand,int>)
+              (regAssignments : Map<int,int>) =
+
+        match tac with
+        | TACBinary (dst, x, op, y) ->
+            let xReg =
+                match regOfOperand regAssignments x with
+                | Some r -> r
+                | None -> OpTemp 5   // scratch
+            let yReg =
+                match regOfOperand regAssignments y with
+                | Some r -> r
+                | None -> OpTemp 6   // scratch
+            let dstReg =
+                match regOfOperand regAssignments dst with
+                | Some r -> r
+                | None -> raise (GenerationException "Binary dst must be temp")
+
+            let xCode = loadOpToReg stackMap xReg x
+            let yCode = loadOpToReg stackMap yReg y
+            let instr =
+                match op with
+                | "+" -> "add"
+                | "-" -> "sub"
+                | "*" -> "mul"
+                | "/" -> "div"
+                | "%" -> "rem"
+                | _ -> raise (GenerationException "Unknown binary op")
+            [
+                xCode
+                yCode
+                $"{instr} {operandToString dstReg}, {operandToString xReg}, {operandToString yReg}"
+            ]
+            |> List.filter (fun s -> s <> "")   
+            |> String.concat "\n"
+        | TACAssign (dst, src) ->
+            let srcReg =
+                match regOfOperand regAssignments src with
+                | Some r -> r
+                | None -> OpTemp 5
+            let loadCode = loadOpToReg stackMap srcReg src
+            match dst with
+            | OpTemp t ->
+                let dstReg =
+                    printf "Searching: %A" t
+                    regAssignments
+                    |> Map.find t
+                    |> fun r -> OpTemp r
+                [
+                    loadCode
+                    $"mv {operandToString dstReg}, {operandToString srcReg}"
+                ]
+                |> List.filter (fun s -> s <> "")
+                |> String.concat "\n"
+            | OpVar _ ->
+                [
+                    loadCode
+                    $"sw {operandToString srcReg}, {slotOf(stackMap, dst)}(sp)"
+                ]
+                |> List.filter (fun s -> s <> "")
+                |> String.concat "\n"
+            | _ ->
+                raise (GenerationException "Invalid assignment destination")
+        | TACIfCmp (x, comp, y, label) ->
+            let xReg =
+                match regOfOperand regAssignments x with
+                | Some r -> r
+                | None -> OpTemp 5
+            let yReg =
+                match regOfOperand regAssignments y with
+                | Some r -> r
+                | None -> OpTemp 6
+            let xCode = loadOpToReg stackMap xReg x
+            let yCode = loadOpToReg stackMap yReg y
+            let branch = branchInstruction comp
+            [
+                xCode
+                yCode
+                $"{branch} {operandToString xReg}, {operandToString yReg}, .{label}"
+            ]
+            |> List.filter (fun s -> s <> "")
+            |> String.concat "\n"
+        | TACGoto label ->
+            $"j .{label}"
+        | TACLabel label ->
+            $".{label}:"
+        | _ -> "Haven't implemented"
+        
+    let mutable tempCounter = 0
+    let mutable labelCounter = 0
+    let mutable typeMap : Map<string, string> = Map.empty 
+        
+    let setType (operand: Operand) (typeName: string) =
+        match operand with
+        | OpVar name -> typeMap <- typeMap.Add(name, typeName)
+        | OpTemp t -> typeMap <- typeMap.Add($"t{t}", typeName)
+        | _ -> ()
+
+    let getType (operand: Operand) : string =
+        match operand with
+        | OpImmInt _ -> "int"
+        | OpImmFloat _ -> "double"
+        | OpVar name -> 
+            match typeMap.TryFind(name) with
+            | Some t -> t
+            | None -> "int"  // Default to int
+        | OpTemp t -> 
+            match typeMap.TryFind($"t{t}") with
+            | Some ty -> ty
+            | None -> "int"  // Default to int
+
+    let inferBinaryType (left: Operand) (right: Operand) : string =
+        let leftType = getType left
+        let rightType = getType right
+        if leftType = "double" || rightType = "double" then "double"
+        else "int"
+    let assignTemp() =
+        tempCounter <- tempCounter + 1
+        tempCounter
+    
+    let newLabel(prefix: string) =
+        labelCounter <- labelCounter + 1
+        $"{prefix}_{labelCounter}"    
+    
+    let tacToString tac =
+        match tac with
+        | TACAssign (x, y) -> $"{operandToString x} = {operandToString y};"
+        | TACBinary (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
+        | TACUnary (t, op, x) -> $"{operandToString t} = {op} {operandToString x};"
+        | TACCall (t, funcName, args) -> $"{operandToString t} = {funcName}({(operandListToString args)});" // We need to differentiate void functions
+                                                                            // and assign return value if not void or we assume there are no void functions?
+        | TACEquiv (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
+        | TACIf (cond, label) -> $"if ({operandToString cond}) goto {label};"
+        | TACGoto label -> $"goto {label};"
+        | TACLabel label -> $"{label}:"
+        | TACPrint arg -> 
+            let argType = getType arg
+            let format = if argType = "double" then "%f" else "%d"
+            $"printf(\"{format}\\n\", {operandToString arg});"
+        | _ -> ""
 
     let lexer input = 
         let rec scan input =
@@ -291,6 +776,8 @@ module interpreter =
             | ','::tail -> Comma:: scan tail
             | '='::'='::tail -> EqEq :: scan tail
             | '='::tail -> Eq :: scan tail
+            | '<'::'='::tail -> LE :: scan tail
+            | '>'::'='::tail -> GE :: scan tail
             | '>'::tail -> GT :: scan tail
             | '<'::tail -> LT :: scan tail
             | ';'::tail -> Semi :: scan tail
@@ -320,19 +807,22 @@ module interpreter =
         Console.ReadLine()
 
     // Grammar in BNF:
-    // <Prog>     ::= <S> (";" <S>)*                // Current implementation
-
-    // <Prog>     ::= <S> <Progopt>                 // Fixed implementation
-    // <Progopt>  ::= ";" <S> <Progopt> | <empty>
-    // <S>        ::= Id "=" <Comp> | <Comp>
-    // <Comp>     ::= <E> | "==" <E> | "<" <E> | ">" <E>
+    // <Prog>     ::= <S> <Progopt>
+    // <S>        ::= "return" <Comp> | Id "=" <Comp> | <Comp>
+    // <Comp>     ::= <E> | <E> "==" <E> | "<" <E> | ">" <E>
     // <E>        ::= <T> <Eopt>
     // <Eopt>     ::= "+" <T> <Eopt> | "-" <T> <Eopt> | <empty>
     // <T>        ::= <P> <Topt>
-    // <Topt>     ::= "%" <NR> <Topt> | "*" <NR> <Topt> | "/" <NR> <Topt> | <empty>
+    // <Topt>     ::= "%" <P> <Topt> | "*" <P> <Topt> | "/" <P> <Topt> | <empty>
     // <P>        ::= <F> <Popt>
     // <Popt>     ::= "^" <P> | <empty>
-    // <F>        ::= <NR> | <FCall> 
+    // <F>         ::= <FuncDef> | <IfStmt> | <ForLoop> | <WhileLoop> | <NR> | <FCall>
+    // <FuncDef>   ::= "func" Id "(" <Params> ")" "{" <Prog> "}"
+    // <Params>    ::= Id <ParamList> | <empty>
+    // <ParamList> ::= "," Id <ParamList> | <empty> 
+    // <IfStmt>    ::= "if" "(" <Comp> ")" "then" "{" <Prog> "}" ("else" "{" <Prog> "}")?
+    // <ForLoop>   ::= "for" "(" Id "=" <Comp> "to" <Comp> ")" "do" "{" <Prog> "}"
+    // <WhileLoop> ::= "while" "(" <Comp> ")" "do" "{" <Prog> "}"
     // <NR>       ::= "+" <NR> | "-" <NR> | "Num" <value> | "(" <E> ")" | Id
     // <FCall>    ::= Id "(" <Args> ")"
     // <Args>     ::= <Comp> <ArgList> | <empty>
@@ -360,6 +850,7 @@ module interpreter =
             | "-" -> subNums lVal rVal            
             | "*" -> mulNums lVal rVal
             | "/" -> divNums lVal rVal
+            | "%" -> modNums lVal rVal
             | _ -> raise (ParseException($"Unknown operator: {op}"))
         | Eqiv(left, op, right) ->
             let lVal = astEvaluate left 
@@ -368,6 +859,8 @@ module interpreter =
             | "==" -> if numericEqual lVal rVal then IntVal 1 else IntVal 0
             | ">" -> if numericGreaterThan lVal rVal then IntVal 1 else IntVal 0
             | "<" -> if numericLessThan lVal rVal then IntVal 1 else IntVal 0
+            | ">=" -> if numericGreaterThanEqual lVal rVal then IntVal 1 else IntVal 0
+            | "<=" -> if numericLessThanEqual lVal rVal then IntVal 1 else IntVal 0
             | _ -> raise(ParseException($"Unknown comparitor: {op}"))
         | Power(left, right) ->
             powNums (astEvaluate left) (astEvaluate right)
@@ -383,7 +876,26 @@ module interpreter =
             let argVals = args |> List.map astEvaluate
             match knownFunctions.TryFind(name) with
             | Some f -> f argVals
-            | None -> raise (ParseException($"Unknown function: { name }"))
+            | None ->
+                match userFunctions.TryFind(name) with
+                | Some (parameters, body) ->
+                    let savedSymbTable = symbTable
+                    parameters 
+                    |> List.zip argVals
+                    |> List.iter (fun (value, paramName) ->
+                        symbTable <- symbTable.Add(paramName, value))
+                    
+                    let mutable returnValue = IntVal 0
+                    for stmt in body do
+                        match stmt with
+                        | Return expr -> 
+                            returnValue <- astEvaluate expr
+                        | _ -> 
+                            returnValue <- astEvaluate stmt 
+                    symbTable <- savedSymbTable
+                    returnValue
+                
+                | None -> raise (ParseException($"Unknown function: {name}"))
         | IfExpr(expr1, expr2, exprOption) ->
             let isTrue =
                 match astEvaluate expr1 with
@@ -425,7 +937,11 @@ module interpreter =
                 else
                     lastResult
             loop (IntVal 0)
-
+        | FuncDef(name, parameters, body) ->
+            userFunctions <- userFunctions.Add(name, (parameters, body))
+            IntVal 0
+        | Return expr ->
+            astEvaluate expr
         | _ -> raise(ParseException($"Unkown expression: { expr }"))
         
     let rec parse tList =
@@ -445,6 +961,9 @@ module interpreter =
             
         and S tList =
             match tList with
+            | Id "return" :: tail ->
+                let (rest, expr) = Comp tail
+                (rest, Return expr)
             | Id name :: Eq :: tail ->
                 let (rest, expr) = Comp tail
                 (rest, Assign(name, expr))
@@ -462,6 +981,12 @@ module interpreter =
             | LT :: tail ->
                 let (rest2, right) = E tail
                 (rest2, Eqiv(left, "<", right))
+            | GE :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, ">=", right))
+            | LE :: tail ->
+                let (rest2, right) = E tail
+                (rest2, Eqiv(left, "<=", right))
             | _ -> (rest, left)
         
         and E tList = 
@@ -519,6 +1044,27 @@ module interpreter =
                 loop [] tokens
             
             match tList with
+            | Id "func" :: Id funcName :: Lpar :: tail ->
+                let rec parseParams tokens =
+                    match tokens with
+                    | Rpar :: rest -> ([], rest)
+                    | Id paramName :: Comma :: rest ->
+                        let (moreParams, finalRest) = parseParams rest
+                        (paramName :: moreParams, finalRest)
+                    | Id paramName :: Rpar :: rest ->
+                        ([paramName], rest)
+                    | _ -> raise (ParseException "Expected parameter name or ')'")
+                
+                let (parameters, afterParams) = parseParams tail
+                
+                match afterParams with
+                | Lcurl :: bodyTokens ->
+                    let (restAfterBody, bodyExpr) = parseBlock bodyTokens
+                    (restAfterBody, FuncDef(funcName, parameters, 
+                        match bodyExpr with 
+                        | Prog stmts -> stmts 
+                        | _ -> [bodyExpr]))
+                | _ -> raise (ParseException "Expected '{' after function parameters")
             | Id "if" :: Lpar :: tail ->
                 let (restCond, condExpr) = Comp tail
                 match restCond with
@@ -598,63 +1144,296 @@ module interpreter =
             let (rest, expr) = Program tList
             (rest, expr)
     
-    let evalResultToObj(result: EvalResult) =
-        match result with
-        | Number n -> box {| ``type`` = "number"; value = n |}
-        | Plot (xs, ys) -> box {| ``type`` = "plot"; x = xs; y = ys |}
+    let operandToCDecl = function
+    | OpTemp t -> $"t{t}"
+    | _ -> failwith "Expected Temp in declareTemps"
+          
+    let declareTemps tac =
+        tempCounter <- 0
+        let allOperands = collectOperands tac
+        let temps = 
+            allOperands 
+            |> List.choose (function 
+                | OpTemp t -> Some $"t{t}"
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+        let vars = 
+            allOperands 
+            |> List.choose (function 
+                | OpVar v -> Some v 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+
+        let allNames = temps @ vars
+
+        let intVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "int" -> true
+                | Some "double" -> false
+                | None -> true
+            )
         
-    let plotsToJson(plots : EvalResult list) =
-        plots |> List.map evalResultToObj |> JsonConvert.SerializeObject
-    
-    let evalSample (expr : string, x : float) =
-        try
-            let replacement = $"({x.ToString(System.Globalization.CultureInfo.InvariantCulture)})"
-            let substituted = expr.Replace("x", replacement)
-            let lexed = lexer substituted
-            let (_, ast) = parse lexed
+        let doubleVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "double" -> true
+                | _ -> false
+            )
 
-            let y = astEvaluate ast |> toFloat
-            if Double.IsNaN y || Double.IsInfinity y then None
-            else Some y
-        with
-        | :? DivisionByZeroException -> None
-        | _ -> None
-    
-    let splitPlots samples =
-        let folder (plots, currentXs, currentYs) (x, yOpt) =
-            match yOpt with
-            | Some y ->
-                plots, x :: currentXs, y :: currentYs
+        let declarations = []
+        let declarations = 
+            if intVars.IsEmpty then declarations
+            else ("int " + String.concat ", " intVars + ";") :: declarations
+        let declarations = 
+            if doubleVars.IsEmpty then declarations
+            else ("double " + String.concat ", " doubleVars + ";") :: declarations
 
-            | None ->
-                match currentXs with
-                | [] -> plots, [], []
-                | _  ->
-                    let plot =
-                        Plot (Array.ofList (List.rev currentXs),
-                              Array.ofList (List.rev currentYs))
-                    plot :: plots, [], []
+        String.concat "\n" (List.rev declarations)
+        
+    let rec flattenIRtoTAC ir =
+        match ir with
+        | Int (IntVal value) ->
+            [], OpImmInt value
+        | Int (FloatVal value) ->
+            [], OpImmFloat value 
+        | Var name ->
+            [], OpVar name
+        | Assign(varName, expr) ->
+            match expr with
+            | Int (IntVal i) -> 
+                let op = OpImmInt i
+                setType (OpVar varName) "int"
+                [TACAssign(OpVar varName, op)], OpVar varName
+            | Int (FloatVal f) ->
+                let op = OpImmFloat f
+                setType (OpVar varName) "double" 
+                [TACAssign(OpVar varName, op)], OpVar varName
+            | _ ->
+                let (code, t) = flattenIRtoTAC expr
+                let exprType = getType t
+                setType (OpVar varName) exprType
+                code @ [TACAssign(OpVar varName, t)], OpVar varName
+        | Unary(op, expr) ->
+            let (code, t) = flattenIRtoTAC expr
+            let temp = assignTemp()
+            let resultType = getType t
+            setType (OpTemp temp) resultType
+            code @ [TACUnary(OpTemp temp, op, t)], OpTemp temp
+        | Binary(x, op, y) ->
+            let (codeL, l) = flattenIRtoTAC x
+            let (codeR, r) = flattenIRtoTAC y
+            let resultType = inferBinaryType l r
+            let temp = assignTemp()
+            setType (OpTemp temp) resultType
+            codeL @ codeR @ [TACBinary(OpTemp temp, l, op, r)], OpTemp temp
+        | Power(x, y) ->
+            let (codeL, l) = flattenIRtoTAC x
+            let (codeR, r) = flattenIRtoTAC y
+            let temp = assignTemp()
+            setType (OpTemp temp) "double"
+            codeL @ codeR @ [TACBinary(OpTemp temp, l ,"^", r)], OpTemp temp
+        | Eqiv(x, op, y) ->
+            let (codeL, l) = flattenIRtoTAC x
+            let (codeR, r) = flattenIRtoTAC y
+            let temp = assignTemp()
+            setType (OpTemp temp) "int"
+            codeL @ codeR @ [TACEquiv(OpTemp temp, l, op, r)], OpTemp temp
+        | FunCall(funcName, args) ->
+            if funcName = "print" then
+                let argTupleList = args |> List.map flattenIRtoTAC
+                let argList = argTupleList |> List.collect fst
+                let tempList = argTupleList |> List.map snd
+                let printArg = tempList |> List.head
+                argList @ [TACPrint printArg], OpImmInt 0
+            else
+                let argTupleList = args |> List.map flattenIRtoTAC
+                let argList = argTupleList |> List.collect fst
+                let tempList = argTupleList |> List.map snd
+                let temp = assignTemp()
+                match userFunctions.TryFind(funcName) with
+                | Some (parameters, body) ->
+                    let bodyProg = Prog(body)
+                    let savedTypeMap = typeMap
+                    typeMap <- Map.empty
+                    let (_, lastOperand) = flattenIRtoTAC bodyProg
+                    let returnType = getType lastOperand
+                    typeMap <- savedTypeMap
+                    setType (OpTemp temp) returnType
+                | None ->
+                    setType (OpTemp temp) "double"
+                argList @ [TACCall(OpTemp temp, funcName, tempList)], OpTemp temp
+        | IfExpr(condExpr, thenExpr, elseExpr) ->
+            let thenLabel = newLabel "then"
+            let elseLabel = newLabel "else"
+            let endLabel  = newLabel "endif"
+            let (thenCode, thenTemp) = flattenIRtoTAC thenExpr
+            let elseCode, elseTemp =
+                match elseExpr with
+                | Some e -> flattenIRtoTAC e
+                | None -> ([], OpImmInt 0)
+            let resultTemp = assignTemp()
+            let resultType = inferBinaryType thenTemp elseTemp
+            setType (OpTemp resultTemp) resultType
+            match condExpr with
+            | Eqiv(x, op, y) ->
+                let (codeL, l) = flattenIRtoTAC x
+                let (codeR, r) = flattenIRtoTAC y
+                
+                let code =
+                    codeL @ codeR @
+                    [ TACIfCmp(l, op, r, thenLabel)
+                      TACGoto elseLabel
+                      TACLabel thenLabel ] @
+                    thenCode @
+                    [ // I've removed this and it might break the C code
+                      TACGoto endLabel
+                      TACLabel elseLabel ] @
+                    elseCode @
+                    [ 
+                      TACLabel endLabel ]
 
-        let plots, xs, ys =
-            samples |> List.fold folder ([], [], [])
+                code, OpTemp resultTemp
+            | _ ->
+                let code =
+                    let (condCode, condTemp) = flattenIRtoTAC condExpr
+                    condCode @
+                    [ TACIf(condTemp, thenLabel)
+                      TACGoto elseLabel
+                      TACLabel thenLabel ] @
+                    thenCode @
+                    [ 
+                      TACGoto endLabel
+                      TACLabel elseLabel ] @
+                    elseCode @
+                    [ 
+                      TACLabel endLabel ]
 
-        let plots =
-            match xs with
-            | [] -> plots
-            | _  ->
-                Plot (Array.ofList (List.rev xs),
-                      Array.ofList (List.rev ys)) :: plots
+                code, OpTemp resultTemp
+        | ForLoop(varName, startExpr, endExpr, bodyStatements) ->
+            let (startCode, startTemp) = flattenIRtoTAC startExpr
+            let (endCode, endTemp) = flattenIRtoTAC endExpr
+            let loopStart = newLabel "for_loop"
+            let loopEnd = newLabel "for_end"
+            let bodyProg = Prog(bodyStatements)
+            let (bodyCode, bodyTemp) = flattenIRtoTAC bodyProg
+            let condTemp = assignTemp()
+            let incTemp = assignTemp()
+            let resultTemp = assignTemp()
+            setType (OpVar varName) "int"
+            setType (OpTemp condTemp) "int"
+            setType (OpTemp incTemp) "int"
+            let bodyType = getType bodyTemp
+            setType (OpTemp resultTemp) bodyType
 
-        List.rev plots
+            let code =
+                startCode @                              
+                [TACAssign(OpVar varName, startTemp)] @        
+                endCode @                                
+                [TACLabel loopStart] @                   
+                [TACEquiv(OpTemp condTemp, OpVar varName, ">", endTemp)] @  
+                [TACIf(OpTemp condTemp, loopEnd)] @             
+                bodyCode @                               
+                [TACAssign(OpTemp resultTemp, bodyTemp)] @      
+                [TACBinary(OpTemp incTemp, OpVar varName, "+", OpImmInt 1)] @ 
+                [TACAssign(OpVar varName, OpTemp incTemp)] @          
+                [TACGoto loopStart] @                    
+                [TACLabel loopEnd]                       
+            
+            code, OpTemp resultTemp
+            
+        | WhileLoop(condExpr, bodyStatements) ->
+            
+            let loopStart = newLabel "while_loop"
+            let loopEnd = newLabel "while_end"
+            let (condCode, condTemp) = flattenIRtoTAC condExpr
+            let bodyProg = Prog(bodyStatements)
+            let (bodyCode, bodyTemp) = flattenIRtoTAC bodyProg
+            let resultTemp = assignTemp()
+            let notTemp = assignTemp()
+            setType (OpTemp notTemp) "int"
+            let bodyType = getType bodyTemp
+            setType (OpTemp resultTemp) bodyType
+            let code =
+                [TACLabel loopStart] @                   
+                condCode @                               
+                [TACUnary(OpTemp notTemp, "!", condTemp)] @     
+                [TACIf(OpTemp notTemp, loopEnd)] @              
+                bodyCode @                               
+                [TACAssign(OpTemp resultTemp, bodyTemp)] @      
+                [TACGoto loopStart] @                    
+                [TACLabel loopEnd]                       
+            
+            code, OpTemp resultTemp
+        | Prog exprs ->
+            let codeList = exprs |> List.map flattenIRtoTAC // Take each line and apply flatten
+            let tac = codeList |> List.collect fst          // Take each code block and collect into one list
+            let lastVar = codeList |> List.map snd |> List.last // Get last variable assigned which is the final result
+            tac, lastVar
+        | Return expr ->
+            flattenIRtoTAC expr
+        
+        | FuncDef(name, parameters, body) ->
+            [], OpImmInt 0
+        | _ ->
+            printf "%A\n" ir
+            raise (ParseException("Unknown IR token during flattening"))
+
+    let toJson(result: EvalResult) =
+        match result with
+        | Number n -> JsonConvert.SerializeObject({| ``type`` = "number"; value = n |})    
+        | Plot(xs, ys) -> JsonConvert.SerializeObject({| ``type`` = "plot"; x = xs; y = ys |})
+        
     let evalPlot (expr: string, xMin: float, xMax: float, stepSize: float) : string =
-        let samples =
-            [ for x in seq { xMin .. stepSize .. xMax } ->
-                x, evalSample(expr, x) ]
+        let xs = seq { xMin .. stepSize .. xMax }
 
-        samples
-        |> splitPlots
-        |> List.map evalResultToObj
-        |> JsonConvert.SerializeObject
+        let points =
+            xs
+            |> Seq.map (fun x ->
+                let replacement = $"({ x.ToString(System.Globalization.CultureInfo.InvariantCulture) })"
+                let substituted = expr.Replace("x", replacement)
+                let lexed = lexer substituted
+                let (_, ast) = parse lexed
+                try
+                    let result = astEvaluate ast
+                    let y = toFloat result
+                    x, y
+                with
+                | :? DivisionByZeroException -> x, Double.NaN
+                | _ -> x, Double.NaN
+            )
+
+        let segments =
+            points
+            |> Seq.fold (fun acc (x, y) ->
+                match acc with
+                | [] -> if Double.IsNaN y || Double.IsInfinity y then [] else [[(x, y)]]
+                | curSeg :: rest ->
+                    match curSeg with
+                    | [] -> [[(x, y)]] @ rest
+                    | (_, yPrev) :: _ ->
+                        let relativeJump = abs(y - yPrev) / (max (abs yPrev) 1.0)
+                        if Double.IsNaN y || Double.IsInfinity y || relativeJump > 0.5 then
+                            [[(x, y)]] @ acc
+                        else
+                            ((x, y) :: curSeg) :: rest
+            ) []
+            |> List.map List.rev
+            |> List.filter (fun seg -> seg <> [])
+            |> List.rev
+
+        let jsonSegments =
+            segments
+            |> List.map (fun seg ->
+                let xsSeg, ysSeg = seg |> List.toArray |> Array.unzip
+                {| x = xsSeg; y = ysSeg |}
+            )
+
+        JsonConvert.SerializeObject({| ``type`` = "plotSegments"; segments = jsonSegments |})
 
     let rec printTList (lst:list<terminal>) : list<string> = 
         match lst with
@@ -664,24 +1443,250 @@ module interpreter =
         | [] -> Console.Write("EOL\n")
                 []
                 
-    let printValue = function
-    | IntVal x -> string x
-    | FloatVal f -> string f
-    | ComplexVal (r, i) -> complexToString (r, i)
+//    let printValue = function
+//    | IntVal x -> string x
+//    | FloatVal f -> string f
+//    | ComplexVal (r, i) -> complexToString (r, i)
 
+    let writeToFile (fileName : string, str : string, path : string) =
+        let result = System.IO.Directory.CreateDirectory(path)
+        let path = Path.Combine(path, fileName)
+        let file = File.Create(path)
+        
+        let bytes = System.Text.Encoding.UTF8.GetBytes(str)
+        do file.WriteAsync(ReadOnlyMemory bytes) |> ignore
+        
+        file.Close()
+    
+    let tacRISCVString (taclist : TAC list) (map : Map<Operand, int>) (regAssignments : Map<int, int>)=
+        let body =
+            taclist
+            |> List.map (fun tac -> tacToRisc tac map regAssignments)
+            |> String.concat "\n"
+        body
+        
+    let tacCString tac =
+        let tempDecs = declareTemps tac
+        let body = tac
+                    |> List.map tacToString
+                    |> String.concat "\n"
+        $"#include <math.h>\n#include <stdio.h>\nint main(){{\n{tempDecs}\n\n{body}\nreturn 0;\n}}"
+            
+    let userFuncToCString (funcName: string) (parameters: string list) (body: Expr list) : string =
+        let bodyProg = Prog(body)
+        let (tac, lastOperand) = flattenIRtoTAC bodyProg
+
+        let allOperands = collectOperands tac
+        let temps = 
+            allOperands 
+            |> List.choose (function 
+                | OpTemp t -> Some $"t{t}"
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+        let vars = 
+            allOperands 
+            |> List.choose (function 
+                | OpVar v -> Some v 
+                | _ -> None)
+            |> List.distinct
+            |> List.sort
+            |> List.filter (fun v -> not (List.contains v parameters))
+
+        let allNames = temps @ vars
+
+        let intVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "int" -> true
+                | Some "double" -> false
+                | None -> true
+            )
+        
+        let doubleVars = 
+            allNames 
+            |> List.filter (fun name -> 
+                match typeMap.TryFind(name) with
+                | Some "double" -> true
+                | _ -> false
+            )
+
+        let tempDecs = 
+            let declarations = []
+            let declarations = 
+                if intVars.IsEmpty then declarations
+                else ("int " + String.concat ", " intVars + ";") :: declarations
+            let declarations = 
+                if doubleVars.IsEmpty then declarations
+                else ("double " + String.concat ", " doubleVars + ";") :: declarations
+            String.concat "\n" (List.rev declarations)
+        
+        let bodyCode = tac
+                       |> List.map tacToString
+                       |> String.concat "\n"
+
+        let returnType = getType lastOperand
+        
+        let paramDecls = 
+            parameters 
+            |> List.map (fun p ->
+                match typeMap.TryFind(p) with
+                | Some "double" -> $"double {p}"
+                | _ -> $"int {p}")
+            |> String.concat ", "
+        
+        $"{returnType} {funcName}({paramDecls}) {{\n{tempDecs}\n\n{bodyCode}\nreturn {operandToString lastOperand};\n}}\n"
+        
     let evaluate(expr: string) : NumericValue =
         let tokens = lexer expr
         let (_, ast) = parse tokens
+        printfn "AST: %A" ast
         let result = astEvaluate ast
         result  
+    
+    let riscvCompile(expr: string) : string =
+        let tokens = lexer expr
+        printfn "Tokens: %A" tokens
+        let (_, ast) = parse tokens
+        printfn "AST: %A" ast
+        let (tac, last) = flattenIRtoTAC ast
+        let liveMap = calcLiveness tac
+        let ranges = computeLiveRanges liveMap
+        let numRegs = 5 // Save 3 as scratch registers
+        let regAssignments = linearScanAllocate ranges numRegs
+        printfn "TAC: %A" tac
+        printfn "Live Map: %A" liveMap
+        printfn "Live Ranges: %A" ranges
+        printfn "Reg Assignments: %A" regAssignments
+        let map, frameSize = buildFrame tac
+        printfn "Map: %A" map
+        printfn "Frame Size: %A" frameSize
+        let header = riscvPreamble frameSize
+        let body = tacRISCVString tac map regAssignments
+        let code = sprintf $"{header}\n{body}"
+        code
+        
+    
+    let cCompile(expr: string) : string =
+        typeMap <- Map.empty
+        userFunctions <- Map.empty
+        
+        let tokens = lexer expr
+        printfn "Tokens: %A" tokens
+        let (_, ast) = parse tokens
+        printfn "AST: %A" ast
+        
+        let rec collectFunctions expr =
+            match expr with
+            | Prog stmts ->
+                stmts |> List.iter collectFunctions
+            | FuncDef(name, parameters, body) ->
+                userFunctions <- userFunctions.Add(name, (parameters, body))
+            | _ -> ()
+        
+        collectFunctions ast
+        
+        let userFuncCode =
+            userFunctions
+            |> Map.toList
+            |> List.map (fun (name, (parameters, body)) ->
+                typeMap <- Map.empty
+                userFuncToCString name parameters body)
+            |> String.concat "\n"
+            
+        let rec filterFuncDefs expr =
+            match expr with
+            | Prog stmts ->
+                let filtered = stmts |> List.filter (function FuncDef _ -> false | _ -> true)
+                Prog filtered
+            | _ -> expr
+        
+        let mainAst = filterFuncDefs ast
+        
+        typeMap <- Map.empty
+        let (tac, last) = flattenIRtoTAC mainAst
+        let mainCode = tacCString tac
+        if userFuncCode = "" then
+            mainCode
+        else
+            let header = "#include <math.h>\n#include <stdio.h>\n\n"
+            let mainBody = mainCode.Replace("#include <math.h>\n#include <stdio.h>\n", "")
+            header + userFuncCode + "\n" + mainBody
 
+    let gccCompile (workingDirectory : string) (src : string) (dest : string) =
+        let flags = "-Wall -lm"
+        
+        let psi =
+            ProcessStartInfo(
+                FileName = "gcc",
+                Arguments = $"{flags} {src} -o {dest}",
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            )
+        let proc = new Process()
+        proc.StartInfo <- psi
+        proc.Start() |> ignore
+        
+        let stdout = proc.StandardOutput.ReadToEnd()
+        let stderr = proc.StandardError.ReadToEnd()
+        
+        proc.WaitForExit()
+        
+        let json = JsonConvert.SerializeObject({| ``type`` = "compile"; exit = proc.ExitCode; out = stdout; err = stderr |})
+        
+        json
+        
+            
     [<EntryPoint>]
     let main argv  =
         Console.WriteLine("Simple Interpreter")
-        //let input:string = getInputString()
-        let input:string = ""
-        let res = evaluate input
-        printfn "Result: %A" res
+        
+        let devPath = $"{System.AppContext.BaseDirectory}/out/"
+        
+        // Test For Loop
+        let forTest = "x = sin(1); y = x; for(i = 1 to 5) do { x = x + i }"
+        let forCompiled = cCompile(forTest)
+        //writeToFile("for_test.c", forCompiled)
+        printfn "%s" forCompiled
+        
+        // Test While Loop
+        let whileTest = "x = 0; while(x < 5) do { x = x + 1 }"
+        let whileCompiled = cCompile(whileTest)
+        //writeToFile("while_test.c", whileCompiled)
+        printfn "%s" whileCompiled
+            
+        
+        // Test if
+        let compilerInput = "x = 5; y = 6.3; z = x+y; print(z); if(x < 1) then { 2*2 }"
+        let compiled = cCompile(compilerInput)
+        let outputPath = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+        writeToFile("if_test.c", compiled, outputPath)
+        printfn "Compiled successfully!"
+        
+        // Test user-defined function
+        let funcTest = "func add(a, b) { return a + b; } x = add(5, 3); print(x)"
+        let funcCompiled = cCompile(funcTest)
+        let outputPath = Path.Combine(Path.GetDirectoryName(__SOURCE_DIRECTORY__), "out")
+        writeToFile("func_test.c", funcCompiled, outputPath)
+        printfn "%s" funcCompiled
+        
+        
+        // Test evaluator
+        let evalInput = "5 + 3 * 2; print(2+2222)"
+        let result = evaluate evalInput
+        printfn "Result: %A" result
         printfn "Symbol Table: %A" symbTable
-        0
+        
+        // Test RISC-V Compiler
+        let compilerInput = "x = 5; y = 6; z = x + y;"
+        let compiled = cCompile(compilerInput)
+        printfn "Result: %A" compiled
+        //writeToFile("gui_test.c", compiled)
+        
 
+        
+        0

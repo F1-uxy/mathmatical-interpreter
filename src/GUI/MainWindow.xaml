@@ -5,8 +5,9 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:GUI"
         xmlns:oxy="http://oxyplot.org/wpf" x:Class="GUI.MainWindow"
+        xmlns:avalonEdit="http://icsharpcode.net/sharpdevelop/avalonedit"
         mc:Ignorable="d"
-        Title="Math Interpreter" Height="551" Width="980" Background="#A6CAF5">
+        Title="Math Interpreter" Height="600" Width="1200" Background="#A6CAF5">
     <Window.DataContext>
         <local:MainViewModel/>
     </Window.DataContext>
@@ -22,23 +23,56 @@
         </Menu>
         <Grid Margin="10">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2*"/>
-                <ColumnDefinition Width="7*"/>
+                <ColumnDefinition Width="3*"/>
+                <ColumnDefinition Width="6*"/>
             </Grid.ColumnDefinitions>
             
             <Grid Grid.Column="0" Margin="10">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="2*"/>
-                    <RowDefinition Height="5*"/>
-                    <RowDefinition Height="8*"/>
+                    <RowDefinition Height="9*"/>
+                    <RowDefinition Height="4*"/>
                 </Grid.RowDefinitions>
                 
-                <DataGrid Grid.Row="2" ItemsSource="{ Binding SymbolTable }" AutoGenerateColumns="False" IsReadOnly="True">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="Variable" Binding="{Binding SymbolTableKey}" Width="5*"></DataGridTextColumn>
-                        <DataGridTextColumn Header="Value" Binding="{Binding SymbolTableValue}" Width="5*"></DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <Grid Grid.Row="0" Margin="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition  Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                    </Grid.ColumnDefinitions>
+                        
+                    <ComboBox 
+                        x:Name="TargetLanguage"
+                        ItemsSource="{Binding Languages}"
+                        SelectedItem="{Binding Compile.SelectedLanguage}"
+                        Margin="15 20" 
+                        Grid.Column="0"/>
+                    <Button Margin="20" Grid.Column="1" Command="{Binding Compile.RunEnter}">
+                        <TextBlock>Run</TextBlock>
+                    </Button>
+                    <Button Margin="20" Grid.Column="2" Command="{Binding Compile.CompileEnter}">
+                        <TextBlock>Compile</TextBlock>
+                    </Button>
+                </Grid>
+                
+                <avalonEdit:TextEditor
+                    x:Name="CompilerOutputObject"
+                    FontFamily="Consolas"
+                    FontSize="14"
+                    IsReadOnly="True"
+                    SyntaxHighlighting="C++"
+                    local:AvalonEditBinding.BoundText="{Binding CompilerOutput}"
+                    Grid.Row="1"/>
+                
+                <avalonEdit:TextEditor
+                    x:Name="TerminalOutputObject"
+                    FontFamily="Consolas"
+                    FontSize="14"
+                    IsReadOnly="True"
+                    SyntaxHighlighting="PowerShell"
+                    local:AvalonEditBinding.BoundText="{Binding TerminalOutput}"
+                    Grid.Row="2"/>
+
             </Grid>
             
             <Grid Grid.Column="1" Margin="10">
@@ -49,13 +83,13 @@
                 
                 <Grid Margin="0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="8*"/>
+                        <ColumnDefinition Width="4*"/>
                         <ColumnDefinition Width="2*"/>
                     </Grid.ColumnDefinitions>
 
                     <TextBox Grid.Row="0" Grid.Column="0" MaxLength="200" Margin="5" Text="{Binding InputExpression, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" AcceptsReturn="True" AcceptsTab="True">
                         <TextBox.InputBindings>
-                            <KeyBinding Command="{Binding InputEnter}" Gesture="CTRL+ENTER"></KeyBinding>
+                            <KeyBinding Command="{Binding Repl.InputEnter}" Gesture="CTRL+ENTER"></KeyBinding>
                         </TextBox.InputBindings>
                     </TextBox>
                     
@@ -63,12 +97,15 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition  Width="1*"/>
                             <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1*"/>
                         </Grid.ColumnDefinitions>
-                        
-                        <Button Margin="10" Grid.Column="0" Command="{Binding InputEnter}">
+                        <Button Margin="15" Grid.Column="0" Command="{Binding Repl.OpenFileCommand}">
+                            <TextBlock>Load</TextBlock>
+                        </Button>
+                        <Button Margin="15" Grid.Column="1" Command="{Binding Repl.InputEnter}">
                             <TextBlock>Enter</TextBlock>
                         </Button>
-                        <Button Margin="10" Grid.Column="1" Command="{Binding PlotEnter}">
+                        <Button Margin="15" Grid.Column="2" Command="{Binding Plot.PlotEnter}">
                             <TextBlock>Plot</TextBlock>
                         </Button>
                     </Grid>
@@ -81,17 +118,32 @@
                         <ColumnDefinition Width="3*"/>
                     </Grid.ColumnDefinitions>
                     
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="0" Grid.Column="0" >
-                        <TextBox x:Name="AlertTextBlock" 
-                                 FontFamily="Consolas"
-                                 FontSize="14"
-                                 AcceptsReturn="True"
-                                 IsReadOnly="True"
-                                 VerticalScrollBarVisibility="Auto"
-                                 TextWrapping="NoWrap"
-                                 Text="{Binding StatusMessage}"
-                                 Margin="5"/>
-                    </ScrollViewer>
+                    <Grid Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="10*"/>
+                            <RowDefinition Height="5*"/>
+                        </Grid.RowDefinitions>
+                        
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Grid.Row="0" >
+                            <TextBox x:Name="AlertTextBlock" 
+                                     FontFamily="Consolas"
+                                     FontSize="14"
+                                     AcceptsReturn="True"
+                                     IsReadOnly="True"
+                                     VerticalScrollBarVisibility="Auto"
+                                     TextWrapping="NoWrap"
+                                     Text="{Binding StatusMessage, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="5"/>
+                        </ScrollViewer>
+                        
+                        <DataGrid Grid.Row="1" ItemsSource="{ Binding Repl.SymbolTable }" AutoGenerateColumns="False" IsReadOnly="True" Margin="5">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Variable" Binding="{Binding SymbolTableKey}" Width="5*"></DataGridTextColumn>
+                                <DataGridTextColumn Header="Value" Binding="{Binding SymbolTableValue}" Width="5*"></DataGridTextColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                    
                     <Grid Grid.Column="1">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="1*"/>
@@ -109,30 +161,30 @@
                             
                             <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="Scale:" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                <CheckBox IsChecked="{ Binding ScaleEnabled }"></CheckBox>
+                                <CheckBox IsChecked="{ Binding Plot.ScaleEnabled }"></CheckBox>
                             </StackPanel>
                             
                             <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="Marker:" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                <CheckBox IsChecked="{ Binding MarkerEnabled }"></CheckBox>
+                                <CheckBox IsChecked="{ Binding Plot.MarkerEnabled }"></CheckBox>
                             </StackPanel>
                             
                             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="xMin:" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                <TextBox Width="60" Text="{Binding XMinInput}" />
+                                <TextBox Width="60" Text="{Binding Plot.XMin}" />
                             </StackPanel>
 
                             <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="xMax:" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                <TextBox Width="60" Text="{Binding XMaxInput}" />
+                                <TextBox Width="60" Text="{Binding Plot.XMax}" />
                             </StackPanel>
                             <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="Step:" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                <TextBox Width="60" Text="{Binding StepInput}" />
+                                <TextBox Width="60" Text="{Binding Plot.Step}" />
                             </StackPanel>
                         </Grid>
                         
-                        <oxy:PlotView Grid.Row="1" Model="{Binding MyModel }" Margin="5"/>
+                        <oxy:PlotView Grid.Row="1" Model="{Binding Plot.Model }" Margin="5" />
                     </Grid>
                     
                 </Grid>

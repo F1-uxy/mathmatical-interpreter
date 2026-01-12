@@ -8,6 +8,7 @@
 
   <ItemGroup>
 	<Compile Include="FunctionArgsException.fs" />
+	<Compile Include="GenerationException.fs" />
 	<Compile Include="LexerException.fs" />
 	<Compile Include="ParseException.fs" />
 	<Compile Include="DivisionByZeroException.fs" />
