@@ -747,8 +747,7 @@ module interpreter =
         | TACAssign (x, y) -> $"{operandToString x} = {operandToString y};"
         | TACBinary (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
         | TACUnary (t, op, x) -> $"{operandToString t} = {op} {operandToString x};"
-        | TACCall (t, funcName, args) -> $"{operandToString t} = {funcName}({(operandListToString args)});" // We need to differentiate void functions
-                                                                            // and assign return value if not void or we assume there are no void functions?
+        | TACCall (t, funcName, args) -> $"{operandToString t} = {funcName}({(operandListToString args)});"
         | TACEquiv (t, x, op, y) -> $"{operandToString t} = {operandToString x} {op} {operandToString y};"
         | TACIf (cond, label) -> $"if ({operandToString cond}) goto {label};"
         | TACGoto label -> $"goto {label};"
